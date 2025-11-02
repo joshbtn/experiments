@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Noise Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Use Inter font -->
+    <style>
+        :root {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom styling for volume slider track */
+        input[type=range]::-webkit-slider-runnable-track {
+            background: linear-gradient(to right, #6EE7B7, #34D399);
+            height: 8px;
+            border-radius: 4px;
+        }
+        input[type=range]::-moz-range-track {
+            background: linear-gradient(to right, #6EE7B7, #34D399);
+            height: 8px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen p-4 flex items-center justify-center">
+
+    <div id="noise-app" class="w-full max-w-md bg-gray-800 p-6 rounded-xl shadow-2xl space-y-6">
+        <h1 class="text-3xl font-extrabold text-white text-center tracking-tight">Ambient Noise Generator</h1>
+
+        <!-- 1. Start/Stop & Master Volume -->
+        <div class="space-y-4 pt-2">
+            <!-- Start/Stop Button -->
+            <button id="toggleButton" class="w-full py-4 rounded-xl font-bold text-lg transition duration-150 ease-in-out shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                    style="background-color: #EF4444; color: white;">
+                START
+            </button>
+
+            <!-- Master Volume -->
+            <div>
+                <label for="masterVolume" class="block text-sm font-medium mb-1 flex justify-between">
+                    Master Volume: <span id="volumeValue">50%</span>
+                </label>
+                <input type="range" id="masterVolume" min="0" max="100" value="50" class="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-600">
+            </div>
+        </div>
+
+        <!-- 2. Noise Color Selection -->
+        <div class="p-4 bg-gray-700 rounded-lg space-y-3">
+            <h2 class="text-xl font-semibold border-b border-gray-600 pb-2 text-green-300">2. Noise Color (Source)</h2>
+            <div id="noiseColorControls" class="flex justify-around space-x-2">
+                <!-- White Noise -->
+                <label class="flex items-center space-x-2 p-3 bg-gray-600 rounded-lg flex-1 cursor-pointer transition duration-150 hover:bg-gray-500">
+                    <input type="radio" name="noiseColor" value="white" checked class="form-radio text-green-500 h-5 w-5">
+                    <span class="text-sm font-medium">White</span>
+                </label>
+                <!-- Pink Noise -->
+                <label class="flex items-center space-x-2 p-3 bg-gray-600 rounded-lg flex-1 cursor-pointer transition duration-150 hover:bg-gray-500">
+                    <input type="radio" name="noiseColor" value="pink" class="form-radio text-green-500 h-5 w-5">
+                    <span class="text-sm font-medium">Pink</span>
+                </label>
+                <!-- Brown Noise -->
+                <label class="flex items-center space-x-2 p-3 bg-gray-600 rounded-lg flex-1 cursor-pointer transition duration-150 hover:bg-gray-500">
+                    <input type="radio" name="noiseColor" value="brown" class="form-radio text-green-500 h-5 w-5">
+                    <span class="text-sm font-medium">Brown</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- 3. Filtering Section (Shaping) -->
+        <div class="p-4 bg-gray-700 rounded-lg space-y-4">
+            <h2 class="text-xl font-semibold border-b border-gray-600 pb-2 text-indigo-300">3. Filter (Shaping)</h2>
+
+            <!-- Filter Type Toggle -->
+            <div class="flex space-x-4">
+                <label class="flex items-center space-x-2">
+                    <input type="radio" name="filterType" value="lowpass" checked class="form-radio text-indigo-500 h-5 w-5">
+                    <span class="text-sm font-medium">Low-Pass (LP)</span>
+                </label>
+                <label class="flex items-center space-x-2">
+                    <input type="radio" name="filterType" value="highpass" class="form-radio text-indigo-500 h-5 w-5">
+                    <span class="text-sm font-medium">High-Pass (HP)</span>
+                </label>
+            </div>
+
+            <!-- CUT (Cutoff Frequency) Slider -->
+            <div>
+                <label for="filterCut" class="block text-sm font-medium mb-1 flex justify-between">
+                    CUT (Cutoff Frequency): <span id="cutValue">1000 Hz</span>
+                </label>
+                <!-- Using a log scale for frequency slider -->
+                <input type="range" id="filterCut" min="0" max="100" value="50" class="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-600 accent-indigo-400">
+            </div>
+
+            <!-- RES (Resonance/Q) Slider -->
+            <div>
+                <label for="filterRes" class="block text-sm font-medium mb-1 flex justify-between">
+                    RES (Resonance/Q): <span id="resValue">0.7</span>
+                </label>
+                <input type="range" id="filterRes" min="0" max="100" value="10" class="w-full h-2 rounded-lg appearance-none cursor-pointer bg-gray-600 accent-indigo-400">
+            </div>
+        </div>
+        
+        <p class="text-xs text-gray-500 pt-2 text-center">Tip: You must click the START button first to initialize the audio context!</p>
+
+    </div>
+
+    <script>
+        // Global Audio Context and Nodes
+        let audioContext;
+        let noiseSource;
+        let masterGain;
+        let filter;
+        let isPlaying = false;
+
+        // Noise Generation State (for Pink and Brown Noise)
+        let currentNoiseType = 'white';
+        
+        // Pink Noise state (Karp's 1/f approximation, 6-pole)
+        let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+        
+        // Brown Noise state (Integrator)
+        let lastValue = 0;
+
+        // --- Core Audio Functions ---
+
+        /**
+         * Converts a linear slider value (0-100) to a logarithmic frequency (20Hz - 20kHz).
+         * @param {number} position - Slider position (0 to 100).
+         * @returns {number} Frequency in Hz.
+         */
+        function logToFrequency(position) {
+            const minp = 0;
+            const maxp = 100;
+            const minv = Math.log(20);
+            const maxv = Math.log(20000);
+            const scale = (maxv - minv) / (maxp - minp);
+            return Math.round(Math.exp(minv + scale * (position - minp)));
+        }
+
+        /**
+         * Sets up the Web Audio API nodes and connections.
+         */
+        function initializeAudio() {
+            // Check for AudioContext initialization in older browsers
+            if (typeof AudioContext !== 'undefined') {
+                audioContext = new AudioContext();
+            } else if (typeof webkitAudioContext !== 'undefined') {
+                audioContext = new webkitAudioContext();
+            } else {
+                console.error('Web Audio API not supported in this browser.');
+                return;
+            }
+
+            const bufferSize = 4096; // Set buffer size for ScriptProcessorNode
+
+            // 1. Noise Source (ScriptProcessorNode)
+            // Note: ScriptProcessorNode is deprecated but used here for single-file simplicity.
+            noiseSource = audioContext.createScriptProcessor(bufferSize, 0, 2);
+            noiseSource.onaudioprocess = generateNoise;
+
+            // 2. Filter (BiquadFilterNode)
+            filter = audioContext.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = logToFrequency(50); // Initial Cutoff at 1000Hz
+            filter.Q.value = 0.7; // Initial Resonance
+
+            // 3. Master Gain
+            masterGain = audioContext.createGain();
+            masterGain.gain.value = 0.5; // Initial volume
+
+            // Connect the nodes: Source -> Filter -> Gain -> Destination
+            noiseSource.connect(filter);
+            filter.connect(masterGain);
+            masterGain.connect(audioContext.destination);
+
+            // Set initial parameters from UI
+            updateVolume(document.getElementById('masterVolume').value);
+            updateFilterCut(document.getElementById('filterCut').value);
+            updateFilterRes(document.getElementById('filterRes').value);
+            updateFilterType(document.querySelector('input[name="filterType"]:checked').value);
+            updateNoiseColor(document.querySelector('input[name="noiseColor"]:checked').value);
+
+            console.log("Audio Context Initialized and Nodes Connected.");
+        }
+
+        /**
+         * Generates the noise signal based on the selected type.
+         * This function is called continuously by the AudioContext.
+         * @param {AudioProcessingEvent} e
+         */
+        function generateNoise(e) {
+            if (!isPlaying) return;
+
+            let outputL = e.outputBuffer.getChannelData(0);
+            let outputR = e.outputBuffer.getChannelData(1);
+            const bufferSize = outputL.length;
+            
+            for (let i = 0; i < bufferSize; i++) {
+                // Base White Noise: a random value between -1 and 1
+                const white = (Math.random() * 2 - 1);
+                let sample;
+
+                if (currentNoiseType === 'white') {
+                    // White Noise: Uniform spectral density (flat)
+                    sample = white * 0.5;
+
+                } else if (currentNoiseType === 'pink') {
+                    // Pink Noise: -3 dB/Octave (Karp's method)
+                    // This is a 1/f approximation using filtered white noise
+                    b0 = 0.99886 * b0 + white * 0.0555179;
+                    b1 = 0.99332 * b1 + white * 0.0750147;
+                    b2 = 0.96900 * b2 + white * 0.1538520;
+                    b3 = 0.86650 * b3 + white * 0.3104856;
+                    b4 = 0.55000 * b4 + white * 0.5329522;
+                    b5 = -0.7616 * b5 - white * 0.0168980;
+                    sample = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+                    b6 = white * 0.115926;
+                    
+                    sample *= 0.11; // Apply scale factor
+
+                } else if (currentNoiseType === 'brown') {
+                    // Brown/Red Noise: -6 dB/Octave (Integrated White Noise)
+                    lastValue = (lastValue + (0.02 * white)) / 1.02;
+                    sample = lastValue * 3.5; // Apply scale factor for volume balance
+                }
+                
+                // Set both channels
+                outputL[i] = sample;
+                outputR[i] = sample;
+            }
+        }
+
+        /**
+         * Toggles audio playback (Start/Stop).
+         */
+        function togglePlayback() {
+            if (!audioContext) {
+                // Initialize AudioContext on first user interaction
+                initializeAudio();
+            }
+
+            const button = document.getElementById('toggleButton');
+            
+            if (isPlaying) {
+                // Stop: Suspend context and update UI
+                audioContext.suspend().then(() => {
+                    isPlaying = false;
+                    button.textContent = 'START';
+                    button.style.backgroundColor = '#EF4444'; // Red
+                    console.log('Audio Context Suspended.');
+                });
+            } else {
+                // Start: Resume context and update UI
+                audioContext.resume().then(() => {
+                    isPlaying = true;
+                    button.textContent = 'STOP';
+                    button.style.backgroundColor = '#10B981'; // Green
+                    console.log('Audio Context Resumed/Started.');
+                });
+            }
+        }
+
+        // --- UI Update Functions ---
+
+        function updateVolume(value) {
+            if (!masterGain) return;
+            const gainValue = value / 100;
+            masterGain.gain.setValueAtTime(gainValue, audioContext.currentTime);
+            document.getElementById('volumeValue').textContent = `${value}%`;
+        }
+
+        function updateNoiseColor(color) {
+            currentNoiseType = color;
+            console.log(`Noise Color set to: ${color}`);
+        }
+
+        function updateFilterType(type) {
+            if (!filter) return;
+            filter.type = (type === 'lowpass' ? 'lowpass' : 'highpass');
+            console.log(`Filter Type set to: ${type}`);
+        }
+
+        function updateFilterCut(value) {
+            if (!filter) return;
+            // Map the linear slider value to a log frequency
+            const freq = logToFrequency(parseInt(value));
+            filter.frequency.setValueAtTime(freq, audioContext.currentTime);
+            document.getElementById('cutValue').textContent = `${freq} Hz`;
+        }
+
+        function updateFilterRes(value) {
+            if (!filter) return;
+            // Map the 0-100 slider value to Q (0.1 to 10, or more)
+            // Using a simple linear map for Q (0.1 to 10)
+            const q = (parseInt(value) / 100) * 9.9 + 0.1;
+            filter.Q.setValueAtTime(q, audioContext.currentTime);
+            document.getElementById('resValue').textContent = q.toFixed(2);
+        }
+
+        // --- Event Listeners ---
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('toggleButton').addEventListener('click', togglePlayback);
+
+            // Master Volume
+            document.getElementById('masterVolume').addEventListener('input', (e) => {
+                updateVolume(e.target.value);
+            });
+
+            // Noise Color Selection
+            document.querySelectorAll('input[name="noiseColor"]').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    updateNoiseColor(e.target.value);
+                });
+            });
+
+            // Filter Type Selection
+            document.querySelectorAll('input[name="filterType"]').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    updateFilterType(e.target.value);
+                });
+            });
+
+            // Filter CUT
+            document.getElementById('filterCut').addEventListener('input', (e) => {
+                updateFilterCut(e.target.value);
+            });
+
+            // Filter RES
+            document.getElementById('filterRes').addEventListener('input', (e) => {
+                updateFilterRes(e.target.value);
+            });
+            
+            // Initial UI Sync for volume on load
+            document.getElementById('volumeValue').textContent = `${document.getElementById('masterVolume').value}%`;
+            
+            // Initial UI Sync for filter values on load
+            updateFilterCut(document.getElementById('filterCut').value);
+            updateFilterRes(document.getElementById('filterRes').value);
+        });
+
+    </script>
+</body>
+</html>
+
