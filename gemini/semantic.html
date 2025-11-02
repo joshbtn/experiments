@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial Semantic Search Playground</title>
+    <!-- Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Inter font -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7fa;
+        }
+        /* Custom spinner style */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <!-- Load the transformers.js library module -->
+    <script type="module">
+        import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+        
+        // --- Configuration and Data ---
+        const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2'; // Fast, reliable semantic search model
+        
+        // Document Corpus for the search (300 Financial and Trading Headlines)
+        const CORPUS = [
+            "Fed Chair Powell signals 'data-dependent' approach, calming volatility fears.",
+            "S&P 500 records best weekly gain since March on strong tech earnings.",
+            "U.S. Treasury yields hit multi-year highs as inflation worries persist.",
+            "Tesla stock drops 5% after Q3 delivery numbers miss analyst consensus.",
+            "Alphabet beats revenue expectations, shares surge 8% in after-hours trading.",
+            "Oil prices retreat as OPEC+ signals potential production increase.",
+            "Goldman Sachs reports strong fixed-income revenue, defying analyst predictions.",
+            "Renewable energy stocks plunge following subsidy cuts in key European markets.",
+            "Bitcoin briefly drops below $60,000 amid new regulatory crackdown rumors.",
+            "Meta faces antitrust scrutiny in Europe over data usage policies and ad practices.",
+            "China’s factory output contracts for third consecutive month, pressuring global supply chains.",
+            "Pfizer acquires biotech firm for $43 billion, focusing on oncology pipeline expansion.",
+            "Airlines sector warns of weaker holiday travel demand due to spiking fuel costs.",
+            "Consumer confidence index unexpectedly rises, pointing to resilient spending power.",
+            "Housing starts fall sharply in September, signaling cooling in the real estate market.",
+            "European Central Bank keeps rates steady, surprising markets with dovish outlook.",
+            "Nvidia unveils next-generation AI chip, sparking sector-wide hardware rally.",
+            "Retail giant Walmart announces massive share buyback program, shares jump.",
+            "Decentraland (MANA) token soars 20% on partnership with major fashion house.",
+            "Emerging market bonds see outflows as dollar strengthens globally.",
+            "Japan's central bank intervenes in currency market for the first time in two decades.",
+            "Boeing secures multi-billion dollar order from low-cost carrier, boosting backlog.",
+            "Semiconductor shortages begin to ease, favoring auto manufacturers for Q4 production.",
+            "Biotech stock Moderna slumps as COVID-19 vaccine revenue forecasts are revised down.",
+            "Hedge fund Archegos fallout leads to stricter margin rules across Wall Street.",
+            "Global shipping container rates drop 15%, signaling a normalization of trade logistics.",
+            "Software company Salesforce revises annual guidance upward on strong cloud adoption.",
+            "Palladium hits record low on reduced demand from the automotive catalytic converter industry.",
+            "Analysts upgrade ExxonMobil to 'Strong Buy' on strategic shift to renewable fuels.",
+            "Private equity firm KKR launches hostile takeover bid for European utility company.",
+            "German industrial production unexpectedly shrinks, dampening Eurozone growth outlook.",
+            "The 'Fear Index' (VIX) spikes to 30 as geopolitical tensions flare up in Asia.",
+            "Treasury Secretary Yellen calls for global minimum corporate tax rate implementation.",
+            "Bank of America announces massive digital transformation plan, cutting branch footprint.",
+            "Agricultural commodity prices soar due to severe drought impacting Midwest crops.",
+            "Streaming service Netflix adds record subscribers, defying competition concerns.",
+            "Drugmaker Merck's new cancer drug shows promising trial results, shares up 12%.",
+            "Luxury goods conglomerate LVMH reports soaring sales in China and the US.",
+            "Cybersecurity firm Palo Alto Networks warns of state-sponsored threat activity spike.",
+            "Utilities sector becomes defensive play as recession fears mount among investors.",
+            "Australian dollar strengthens against USD after RBA surprises with rate hike.",
+            "Hedge funds pile into short bets on commercial real estate sector.",
+            "Warren Buffett's Berkshire Hathaway increases stake in five major Japanese trading houses.",
+            "Decentralized finance (DeFi) platforms face new regulatory scrutiny globally.",
+            "Travel stocks gain ground as international borders reopen without quarantine mandates.",
+            "Major tech CEOs testify before Congress on monopoly concerns and market power.",
+            "Mining company Rio Tinto sees profits slump on lower iron ore prices and labor disputes.",
+            "Credit Suisse posts largest quarterly loss in a decade, announces restructuring plan.",
+            "Supply chain diversification accelerates as firms shift production from single countries.",
+            "Electric vehicle battery maker QuantumScape suffers stock drop after production delay announcement.",
+            "Industrial stocks rise as infrastructure spending bill passes through U.S. Senate.",
+            "Federal Reserve raises benchmark interest rate by 75 basis points, third hike this year.",
+            "Global debt burden hits record high, sparking concerns about sovereign default risks.",
+            "Adobe stock falls after report suggests slower growth for Creative Cloud subscriptions.",
+            "Healthcare providers see increased revenue from elective surgeries post-pandemic recovery.",
+            "Energy crisis in Europe drives natural gas prices to historic peaks.",
+            "Starbucks unionization efforts expand, creating uncertainty for labor costs.",
+            "Currency traders brace for volatility ahead of U.S. non-farm payrolls data release.",
+            "BlackRock predicts a 'regime change' in markets favoring value stocks over growth.",
+            "Venture capital funding for early-stage AI startups reaches unprecedented levels.",
+            "SoftBank posts massive loss in Vision Fund, triggering leadership changes.",
+            "Mexico's central bank delivers surprise rate cut, boosting local manufacturing exports.",
+            "Precious metals rally as investors seek safe haven assets amid market turmoil.",
+            "Home Depot beats Q3 expectations, citing continued strong demand for home improvement.",
+            "Software company Snowflake reports strong RPO growth, indicating future revenue stability.",
+            "Bond market inversion deepens, historically foreshadowing an economic recession.",
+            "European natural gas futures soar past €200 amid winter supply fears.",
+            "South Korea's KOSPI index slides on concerns over declining memory chip demand.",
+            "Disney+ subscriber growth disappoints, prompting stock downgrade by Morgan Stanley.",
+            "Cannabis stocks surge after U.S. administration signals review of federal classification.",
+            "Brazil's Bovespa index gains as commodity export revenues boost national reserves.",
+            "Luxury carmaker Ferrari sees Q3 profits jump 15% on high demand for exclusive models.",
+            "Telecommunications firms invest heavily in 5G infrastructure, driving CapEx budgets up.",
+            "Insurers face massive claims following unprecedented hurricane season in the Atlantic.",
+            "Hong Kong stocks tumble on political uncertainty and regulatory crackdowns on tech firms.",
+            "Corporate share buybacks reach all-time high in Q3, supporting stock valuations.",
+            "New regulatory framework for stablecoins proposed by U.S. Treasury Department.",
+            "Travel booking giant Expedia reports record quarterly bookings, shares up 10%.",
+            "Food delivery services face margin pressure as labor and gas costs rise.",
+            "Defense contractor Lockheed Martin wins major government contract, stock jumps.",
+            "Renewable energy investment firm Brookfield launches $15 billion climate transition fund.",
+            "Industrial automation company ABB sees record order intake, pointing to CapEx cycle strength.",
+            "Chinese property developer Evergrande officially defaults on international bond payments.",
+            "Bank stress tests reveal resilience across major U.S. financial institutions.",
+            "E-commerce giant Amazon announces hiring freeze for corporate roles, optimizing costs.",
+            "Global copper demand expected to surge driven by electric vehicle and green energy boom.",
+            "Warren Buffett sells majority of his remaining IBM stake, citing valuation concerns.",
+            "Biotech firm Gilead Sciences posts strong HIV drug sales, offsetting pipeline weakness.",
+            "Cloud computing battle intensifies as Google Cloud aims to close gap with AWS and Azure.",
+            "Argentina's peso depreciates sharply after central bank raises interest rates to 75%.",
+            "Used car prices begin to fall, easing pressure on consumer inflation metrics.",
+            "Asset manager Bridgewater Associates reports record inflows into flagship hedge fund.",
+            "UK FTSE 100 index outperforms Euro Stoxx 50, benefiting from strong commodity exposure.",
+            "Activist investor demands board seats at struggling media conglomerate Warner Bros.",
+            "Solar energy components manufacturer First Solar raises revenue forecast for 2024.",
+            "Pharmaceutical lobby pushes back against government drug price negotiation proposals.",
+            "Private equity dry powder reaches $2 trillion globally, signaling strong M&A potential.",
+            "Decentralized autonomous organizations (DAOs) gain legal recognition in Wyoming.",
+            "Retail foot traffic rebounds in major metropolitan areas, aiding mall REITs.",
+            "Global trade disputes escalate as US and EU impose new tariffs on steel and aluminum.",
+            "Microsoft announces major investment in generative AI infrastructure for Azure.",
+            "Bank earnings kick off next week; focus on net interest margin and loan growth.",
+            "Industrial real estate demand surges due to continued e-commerce expansion.",
+            "The average cost of U.S. residential property dips for the first time in two years.",
+            "Swiss National Bank unexpectedly hikes rates, sending the Swiss Franc soaring.",
+            "Commodity trading firm Glencore reports record half-year profit from energy division.",
+            "Automaker Ford announces multi-billion dollar investment in electric truck production.",
+            "Credit rating agency Moody's lowers outlook for global banking system.",
+            "Tech startups focusing on climate technology raise over $30 billion in Q3.",
+            "US dollar index hits 20-year peak against a basket of major world currencies.",
+            "Hedge fund manager Ray Dalio warns of 'stagflation' risks in developed economies.",
+            "Major cryptocurrency exchange Binance faces regulatory fines in the Netherlands.",
+            "Utilities giant NextEra Energy sees stock drop after CEO retirement announcement.",
+            "Retail sales in Germany fall sharply, indicating weak consumer sentiment in the Eurozone.",
+            "Apple supplier Foxconn halts production in major China plant due to COVID lockdown.",
+            "Cybersecurity firm CrowdStrike beats profit estimates but forecasts cautious Q4 growth.",
+            "Gold price maintains strong support level despite rising real interest rates.",
+            "Passive index funds see record inflows, pressuring active managers' market share.",
+            "Saudi Aramco stock reaches all-time high on high crude oil demand projections.",
+            "European regulators propose stricter rules for environmental, social, and governance (ESG) reporting.",
+            "Telehealth provider Teladoc Health stock plunges after acquisition goodwill write-down.",
+            "Treasury bond auction sees weak demand, pushing yields slightly higher across the curve.",
+            "The Federal Reserve's balance sheet reduction continues at pace, draining liquidity.",
+            "Defense spending boosts aerospace manufacturers' outlook for the next fiscal year.",
+            "Emerging market debt funds see renewed investor interest after a year of outflows.",
+            "Global mining stocks rally as China announces stimulus measures for infrastructure.",
+            "UK housing prices continue to climb, fueled by shortage of available properties.",
+            "Canadian bank earnings reflect resilient lending but increased provisioning for bad debts.",
+            "Sports betting company DraftKings stock soars on new state legalization prospects.",
+            "Major freight carrier FedEx sees margins squeezed by high labor and operational costs.",
+            "South Africa's Rand weakens as load shedding threatens mining and industrial output.",
+            "Corporate credit spreads widen, signaling increased risk aversion among investors.",
+            "Pharmaceutical company Novo Nordisk expands production of popular weight-loss drug.",
+            "Technology sector layoff announcements continue, totaling over 100,000 workers this year.",
+            "Global trade volume is projected to slow significantly in the coming quarter, WTO warns.",
+            "Warren Buffett's favorite indicator shows US stock market is 'significantly overvalued'.",
+            "Japan's Nikkei index hits a 30-year high on weak yen and strong corporate profits.",
+            "ESG fund performance lags behind traditional indices amidst energy sector rebound.",
+            "Private equity deals in the software sector cool off due to higher financing costs.",
+            "Australian government imposes new tax on major oil and gas producers.",
+            "Robotics and automation stocks gain on long-term trend towards labor efficiency.",
+            "Retail giant Target reports inventory surplus, leading to aggressive markdowns.",
+            "Bank of Japan maintains ultra-low interest rates, keeping the yen under pressure.",
+            "Copper futures surge on supply disruption concerns in major South American mines.",
+            "Major oil companies commit billions to carbon capture and storage technologies.",
+            "Cryptocurrency exchange FTX founder Sam Bankman-Fried sentenced to 25 years in prison.",
+            "Germany avoids technical recession, posting marginal Q2 GDP growth.",
+            "US regional bank stocks stabilize after spring turmoil, but lending remains tight.",
+            "Defense firm Raytheon misses consensus estimates due to supply chain delays.",
+            "Global food prices show signs of moderation, easing pressure on supermarket margins.",
+            "Tech stocks enter a bear market after sustained selling pressure across the sector.",
+            "Emerging market currencies rally as US dollar shows signs of fatigue.",
+            "Biotech innovation pipeline remains robust despite funding slowdown for late-stage trials.",
+            "UK inflation falls below 10%, giving the Bank of England room to pause rate hikes.",
+            "Luxury real estate sales slump globally as interest rates bite high-end buyers.",
+            "Shipping company Maersk forecasts a sharp drop in future container demand.",
+            "Major European banks increase provisions for non-performing loans in Spain and Italy.",
+            "The yield curve inversion hits its deepest point since the 1980s, signaling high risk.",
+            "Software company Oracle acquires healthcare IT firm Cerner for $28 billion.",
+            "Geopolitical tensions in the Taiwan Strait cause market jitters across Asia.",
+            "Investment bank JPMorgan Chase upgrades utility sector to 'overweight' for Q4.",
+            "Electric vehicle startup Rivian misses production targets, stock slides 15%.",
+            "Russia's sovereign credit rating downgraded to 'junk' status by S&P Global.",
+            "Retail sector prepares for a cautious holiday shopping season due to inflation.",
+            "Gold mining stocks benefit from rising gold prices and strong operational leverage.",
+            "New legislation proposes stricter oversight of private equity investments in healthcare.",
+            "Solar panel manufacturer JinkoSolar sees stock rise on breakthrough cell efficiency.",
+            "US national debt ceiling standoff creates temporary bond market volatility.",
+            "Global tourism rebounds strongly, boosting revenues for hotel and resort operators.",
+            "Semiconductor industry group forecasts a sharp correction in memory chip pricing.",
+            "Hedge fund manager Bill Ackman takes a short position on European government bonds.",
+            "Indian stock market hits record high, fueled by strong domestic institutional buying.",
+            "Commercial aircraft engine maker Rolls-Royce posts first annual profit in four years.",
+            "Major pharmaceutical companies face patent cliff challenges in the coming decade.",
+            "Agricultural equipment manufacturer Deere & Co. beats estimates on strong farmer demand.",
+            "US housing affordability index falls to its lowest level since 2007.",
+            "European Union reaches agreement on new digital markets regulation targeting Big Tech.",
+            "Natural gas explorer EQT announces $5 billion acquisition of rival Appalachian Basin producer.",
+            "Cyberattack disrupts operations at major colonial pipeline, causing energy price spike.",
+            "Japan's technology exports surge on weak yen and robust global demand for electronics.",
+            "Federal Reserve's quantitative tightening program sees $60 billion in assets shed monthly.",
+            "Disney CEO signals a strategic focus shift back to core creative content and parks.",
+            "Private credit markets expand rapidly, filling the gap left by traditional bank lending.",
+            "Global crude oil reserves are revised down by 10%, pointing to long-term supply constraints.",
+            "Emerging market tech firms raise capital despite global IPO drought.",
+            "Germany's DAX index breaks key resistance level, signaling strong investor optimism.",
+            "Biotech firm Vertex Pharmaceuticals posts strong Cystic Fibrosis drug sales.",
+            "US government launches anti-dumping investigation into Chinese steel imports.",
+            "Real estate investment trusts (REITs) focused on data centers outperform the broader market.",
+            "Major airlines upgrade fleet with fuel-efficient models, betting on long-term fuel cost savings.",
+            "Treasury yields fall on weaker-than-expected manufacturing data, suggesting economic slowdown.",
+            "Investment bank Morgan Stanley sees a shift from defensive to cyclical stocks.",
+            "Corporate bond issuance volume hits a multi-year low amid high borrowing costs.",
+            "China's central bank cuts key lending rates to support struggling property sector.",
+            "Luxury watch market sees prices stabilize after two years of exponential pandemic growth.",
+            "Insurance company Chubb acquires competitor in a move to dominate commercial property insurance.",
+            "UK Pound Sterling hits a two-year low against the US Dollar on political turmoil.",
+            "Technology sector M&A activity remains subdued as regulators scrutinize major deals.",
+            "European Union proposes a ban on the sale of new internal combustion engine cars by 2035.",
+            "Gold price surges past $2,100 per ounce, nearing all-time high amidst flight to safety.",
+            "Cloud security provider Zscaler reports record quarterly revenue and billings growth.",
+            "US budget deficit widens significantly due to lower-than-expected tax receipts.",
+            "Asset manager BlackRock expands its ETF offerings in the sustainable finance space.",
+            "Major food producer Nestle warns of further price hikes due to commodity inflation.",
+            "Healthcare system UnitedHealth Group reports strong growth in its Optum segment.",
+            "Geopolitical conflict in Ukraine continues to impact global grain and fertilizer markets.",
+            "Japan's inflation rate accelerates, putting pressure on the Bank of Japan's easy money policy.",
+            "The Eurozone enters a mild technical recession, prompting calls for coordinated stimulus.",
+            "E-commerce leader Shopify announces a 20% workforce reduction to optimize core business.",
+            "US government secures key agreement with Mexico to curb cross-border migration.",
+            "Retail stocks rally as consumer spending remains robust despite economic headwinds.",
+            "Defense contractor General Dynamics lands large contract for next-generation submarines.",
+            "Emerging market debt restructurings increase in Africa and Latin America.",
+            "The price of Lithium, a key battery component, drops 50% from its peak, favoring EV makers.",
+            "Telecom giant Verizon announces plans to spin off its media assets and focus on 5G buildout.",
+            "Industrial giant General Electric spins off healthcare division, simplifying its structure.",
+            "US job openings fall, indicating a potential cooling in the historically tight labor market.",
+            "Germany's largest utility, E.ON, posts record profit from energy trading operations.",
+            "Tech conglomerate SoftBank launches its second $100 billion Vision Fund, focusing on AI.",
+            "Major index rebalancing sees several old-economy stocks replaced by technology leaders.",
+            "Private equity firm Blackstone launches a large-scale real estate fund focused on logistics.",
+            "Cryptocurrency exchange Coinbase stock gains after successful integration of regulatory compliance.",
+            "Treasury Secretary warns of potential economic instability if debt ceiling is not raised.",
+            "Global copper market tightens as supply disruptions in Chile continue to plague production.",
+            "Major sportswear company Nike reports inventory challenges due to slow sales in China.",
+            "US natural gas futures fall below $2 amid warmer-than-expected winter forecasts.",
+            "Pharmaceutical firm Eli Lilly sees massive stock jump on positive Alzheimer's drug trial data.",
+            "European equity funds see first net inflow in six months, signaling renewed interest.",
+            "UK government announces new tax cuts aimed at boosting business investment and growth.",
+            "US banking regulators propose stricter capital requirements for mid-sized regional banks.",
+            "China's central bank injects massive liquidity into the interbank market to stabilize credit.",
+            "Technology hardware maker HP Inc. reports declining PC sales but strong printer revenue.",
+            "Silver price outperforms gold, driven by industrial demand in solar panel manufacturing.",
+            "Global auto sales forecast is revised up as supply chain issues significantly improve.",
+            "Warren Buffett criticizes excessive stock buybacks, calling them 'bad for the economy'.",
+            "Major travel companies form an alliance to push for standardized global travel health passports.",
+            "Asset manager Fidelity lowers fees on several index funds to attract younger investors.",
+            "US government launches new investment vehicle focused on quantum computing technology.",
+            "UK Chancellor announces £30 billion spending package to combat energy crisis impact.",
+            "European Commission proposes tougher anti-money laundering rules for cryptocurrency exchanges.",
+            "Global demand for electric trucks surges, benefiting manufacturers like Volvo and Daimler.",
+            "Telecom company T-Mobile US reports record customer additions, pressuring rivals.",
+            "The Nasdaq Composite officially enters correction territory, down 10% from its peak.",
+            "US consumer credit usage slows down, signaling cautious borrower behavior.",
+            "Major oil companies commit to achieving net-zero emissions by 2050, boosting ESG scores.",
+            "European airlines report strong summer booking trends, exceeding pre-pandemic levels.",
+            "China's tech crackdown eases slightly, allowing some firms to resume overseas listings.",
+            "Agricultural commodity traders warn of potential wheat supply shock due to Black Sea conflict.",
+            "Investment grade corporate bond yields hit a seven-year high, increasing borrowing costs.",
+            "Cybersecurity firm Check Point Software posts strong results in its cloud security division.",
+            "US Federal Trade Commission initiates review of major tech merger involving AI development.",
+            "Germany's industrial heartland faces energy supply uncertainties this winter.",
+            "Luxury goods giant Hermès reports surging demand for high-end handbags in Asia.",
+            "Biotech venture capital firms pivot funding towards gene editing and personalized medicine.",
+            "US labor union membership sees marginal increase, signaling shift in worker power.",
+            "Global shipping industry profits soar on high freight rates and limited vessel capacity.",
+            "Technology giant IBM completes spin-off of its managed infrastructure services business.",
+            "US housing inventory remains near historic lows, supporting continued high prices.",
+            "European banks warn of exposure to commercial real estate downturn in Germany and France.",
+            "Major food and beverage company PepsiCo beats earnings, citing successful price increases.",
+            "Russia launches new digital currency pilot, aiming to bypass international payment systems.",
+            "US pharmaceutical sector benefits from favorable court ruling on patent exclusivity.",
+            "Global semiconductor sales forecast to decline 5% this year before strong rebound in 2024.",
+            "Technology firm Zoom Video Communications stock drops on slowing enterprise adoption.",
+            "Retail spending data shows consumers prioritizing essentials over discretionary goods.",
+            "Defense stocks rally globally as military spending accelerates across NATO members.",
+            "Emerging market bond yields become attractive relative to developed market counterparts.",
+            "UK manufacturing output falls sharply, leading to renewed calls for government support.",
+            "Asset manager Vanguard announces new suite of actively managed fixed-income ETFs.",
+            "US government proposes massive investment in domestic semiconductor fabrication plants.",
+            "European stock markets see strongest start to the year in over two decades.",
+            "Biotech firm BioNTech stock volatile following sharp drop in COVID vaccine demand.",
+            "US consumer loan delinquencies tick up, but remain historically low for now.",
+            "Global insurance industry pivots focus to climate-related risk and coverage gaps.",
+            "Luxury retail space rents see double-digit growth in Manhattan and London.",
+            "Tech giant Apple announces new mixed-reality headset, sparking enthusiasm in the metaverse space.",
+            "US oil producers ramp up drilling activity as WTI crude price stabilizes above $80.",
+            "Investment banking fees plummet globally amid a sustained drought in IPO activity.",
+            "China's government announces new stimulus package aimed at boosting domestic consumption.",
+            "Financial services firm Visa reports strong cross-border transaction volume, shares rise.",
+            "The price of uranium soars as global utilities look to nuclear power for energy stability.",
+            "US Federal Reserve signals willingness to tolerate a moderate recession to curb inflation.",
+            "Global logistics firm DHL reports strong earnings, citing resilient air freight demand.",
+            "Biotech startup raises $500 million in pre-IPO funding round, focusing on longevity research.",
+            "US unemployment claims unexpectedly jump, raising concerns about labor market softening.",
+            "Major cryptocurrency platforms face liquidity crunch following the collapse of a key lender.",
+            "UK FTSE 250 index, focused on domestic firms, underperforms the globally-oriented FTSE 100.",
+            "European automakers struggle with electric vehicle transition amid high battery costs.",
+            "US government announces new export controls targeting advanced semiconductor technology.",
+            "Technology stock Netflix announces crackdown on password sharing, aiming to boost revenue.",
+            "Global corporate default rates are projected to increase by 50% in the next 12 months.",
+            "Investment firm Citadel reports record annual revenue, driven by volatile market conditions.",
+            "China's tech hub Shenzhen announces massive incentives for AI development and talent.",
+            "Renewable energy firm Orsted wins massive offshore wind farm project bid in the US.",
+            "US airlines see strong revenue per available seat mile (RASM) despite operational issues.",
+            "Major healthcare systems increase investment in artificial intelligence for diagnostics.",
+            "Federal Reserve study highlights widening wealth gap in the United States.",
+            "Luxury goods sales expected to normalize after pandemic-era spending boom tapers off.",
+            "Global shipping alliance announces new routes to bypass congested ports in Asia.",
+            "Corporate IT spending forecasts are revised downward as companies brace for economic slowdown."
+        ];
+
+        // --- DOM Elements ---
+        const searchInput = document.getElementById('search-input');
+        const searchButton = document.getElementById('search-button');
+        const searchResults = document.getElementById('search-results');
+        const statusMessage = document.getElementById('status-message');
+        const searchContainer = document.getElementById('search-container');
+        
+        let embedder = null;
+        let corpusEmbeddings = null;
+
+        // --- Utility Function: Cosine Similarity ---
+        function cosineSimilarity(vecA, vecB) {
+            // Helper to compute the dot product
+            const dotProduct = vecA.reduce((sum, a, i) => sum + (a * vecB[i]), 0);
+            
+            // Helper to compute the magnitude
+            const magnitude = (vec) => Math.sqrt(vec.reduce((sum, val) => sum + (val * val), 0));
+            
+            const magA = magnitude(vecA);
+            const magB = magnitude(vecB);
+            
+            if (magA === 0 || magB === 0) return 0; // Avoid division by zero
+            return dotProduct / (magA * magB);
+        }
+
+        // --- Core Functions ---
+
+        /**
+         * Converts the text corpus into vector embeddings using the transformer model.
+         */
+        async function embedCorpus() {
+            statusMessage.textContent = '1/2: Loading AI model (approx. 30MB)...';
+            searchContainer.classList.add('opacity-50', 'pointer-events-none');
+            searchButton.disabled = true;
+            
+            try {
+                // 1. Initialize the feature extraction pipeline (downloads model files)
+                embedder = await pipeline('feature-extraction', MODEL_NAME);
+
+                statusMessage.textContent = '2/2: Embedding 300 financial headlines... (This happens once)';
+
+                // 2. Process the corpus and extract 2D tensor data
+                const output = await embedder(CORPUS, { pooling: 'mean', normalize: true });
+                
+                // CRITICAL FIX: The output tensor from feature-extraction with pooling is 2D: [batch_size, embedding_dim].
+                // .tolist() returns a 2D array of arrays.
+                corpusEmbeddings = output.tolist(); 
+
+                console.log(`Corpus embedded successfully. Total vectors: ${corpusEmbeddings.length}. Vector dimension: ${corpusEmbeddings[0].length}.`);
+
+                statusMessage.textContent = 'Model loaded and documents embedded. Ready to search!';
+                statusMessage.classList.remove('text-yellow-600', 'animate-pulse');
+                statusMessage.classList.add('text-green-600');
+                
+                searchContainer.classList.remove('opacity-50', 'pointer-events-none');
+                searchButton.disabled = false;
+            } catch (error) {
+                console.error("Initialization Failed (Model Load or Embedding):", error);
+                statusMessage.textContent = `Error: Initialization failed. Details in console. (${error.message.substring(0, 50)}...)`;
+                statusMessage.classList.remove('text-yellow-600', 'animate-pulse');
+                statusMessage.classList.add('text-red-600');
+            }
+        }
+        
+        /**
+         * Performs semantic search using the query against the embedded corpus.
+         * @param {string} query 
+         */
+        async function performSearch(query) {
+            if (!embedder || !corpusEmbeddings) {
+                searchResults.innerHTML = '<p class="p-4 bg-red-100 text-red-800 rounded-xl">Model not ready. Please wait for initialization or check for errors above.</p>';
+                return;
+            }
+
+            // 1. Update UI to show loading
+            searchResults.innerHTML = '';
+            searchButton.disabled = true;
+            searchButton.innerHTML = '<div class="loader"></div> Searching...';
+            
+            try {
+                // 2. Embed the user query
+                const queryOutput = await embedder(query, { pooling: 'mean', normalize: true });
+                
+                // Extract query embedding (again, should be a single 1D array)
+                const queryEmbedding = queryOutput.tolist()[0];
+
+                console.log(`Query embedded successfully. Vector dimension: ${queryEmbedding.length}.`);
+
+                // 3. Calculate similarity and rank results
+                const similarities = corpusEmbeddings.map((docEmbedding, index) => ({
+                    text: CORPUS[index],
+                    score: cosineSimilarity(queryEmbedding, docEmbedding)
+                }));
+                
+                // Sort by score (descending)
+                similarities.sort((a, b) => b.score - a.score);
+
+                // 4. Render results
+                if (similarities.length === 0) {
+                    searchResults.innerHTML = '<p class="text-center text-gray-500 py-4">No documents to search.</p>';
+                    return;
+                }
+                
+                const htmlContent = similarities.slice(0, 10).map((item, index) => { // Displaying top 10 results
+                    // Use a color scale based on the score (e.g., from light blue to deep blue)
+                    const normalizedScore = item.score; // Scores are already between 0 and 1
+                    const scoreColor = normalizedScore > 0.8 ? 'bg-indigo-100' : 
+                                       normalizedScore > 0.6 ? 'bg-blue-50' : 
+                                       'bg-white';
+                    const ringColor = normalizedScore > 0.8 ? 'ring-indigo-500' : 'ring-gray-300';
+
+                    return `
+                        <div class="p-4 rounded-xl shadow-lg mb-4 transition-all duration-300 ${scoreColor} ring-2 ${ringColor} hover:shadow-xl">
+                            <div class="text-xs font-semibold uppercase text-blue-600 mb-1">
+                                Rank ${index + 1} &middot; Score: ${item.score.toFixed(4)}
+                            </div>
+                            <p class="text-gray-800 leading-relaxed">${item.text}</p>
+                        </div>
+                    `;
+                }).join('');
+
+                searchResults.innerHTML = htmlContent;
+
+            } catch (error) {
+                console.error("Semantic search failed during query or calculation:", error);
+                searchResults.innerHTML = '<p class="text-center text-red-500 py-4">An error occurred during search. See console for details.</p>';
+            } finally {
+                // 5. Reset button state
+                searchButton.disabled = false;
+                searchButton.innerHTML = 'Search';
+            }
+        }
+
+        // --- Event Listeners and Initialization ---
+
+        // Initialize the model and embed corpus when the window loads
+        window.onload = embedCorpus;
+        
+        // Handle search button click
+        searchButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            const query = searchInput.value.trim();
+            if (query) {
+                performSearch(query);
+            } else {
+                // IMPORTANT: Use a custom UI element instead of alert()
+                searchResults.innerHTML = '<div class="p-4 bg-yellow-100 text-yellow-800 rounded-xl">Please enter a search query.</div>';
+            }
+        });
+        
+        // Allow pressing Enter key to search
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                searchButton.click();
+            }
+        });
+        
+    </script>
+</head>
+<body class="min-h-screen p-4 sm:p-8">
+
+    <div class="max-w-3xl mx-auto">
+        
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-2">
+                Financial Semantic Search Demo
+            </h1>
+            <p id="status-message" class="text-yellow-600 font-medium animate-pulse">
+                Loading AI model (approx. 30MB)... please wait.
+            </p>
+        </header>
+
+        <!-- Search Input Area -->
+        <div id="search-container" class="bg-white p-6 rounded-2xl shadow-2xl transition-all duration-500">
+            <form class="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
+                <input 
+                    type="text" 
+                    id="search-input" 
+                    placeholder="E.g., What is the effect of oil prices on airline profits?"
+                    required
+                    class="flex-grow p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow text-lg"
+                >
+                <button 
+                    id="search-button" 
+                    disabled
+                    class="px-6 py-3 text-lg font-semibold rounded-xl bg-blue-600 text-white shadow-md hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                >
+                    <span class="text-lg">Search</span>
+                </button>
+            </form>
+            <p class="text-sm text-gray-500 mt-3">Searching across 300 financial and trading headlines using a local, browser-based embedding model.</p>
+        </div>
+
+        <!-- Results Area -->
+        <main class="mt-8">
+            <h2 class="text-2xl font-bold text-gray-700 mb-4">Top 10 Search Results (Ranked by Semantic Score)</h2>
+            <div id="search-results" class="space-y-4">
+                <!-- Results will be injected here -->
+                <div class="p-4 bg-white rounded-xl shadow-lg border border-gray-200 text-gray-500 text-center">
+                    Enter a query above to see the semantic matches.
+                </div>
+            </div>
+        </main>
+
+    </div>
+</body>
+</html>
+
