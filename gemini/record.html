@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Permanent Local Audio Recorder</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Use Inter font -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117; /* Dark background */
+            color: #c9d1d9; /* Light text */
+            min-height: 100vh;
+        }
+        .card {
+            background-color: #161b22; /* Slightly lighter dark card background */
+            border: 1px solid #30363d;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        /* Custom scrollbar for the recordings list */
+        #recordings-list::-webkit-scrollbar {
+            width: 8px;
+        }
+        #recordings-list::-webkit-scrollbar-thumb {
+            background-color: #30363d;
+            border-radius: 4px;
+        }
+        .playback-controls button {
+            transition: all 0.2s;
+            box-shadow: 0 4px #0f766e;
+            transform: translateY(0);
+        }
+        .playback-controls button:active {
+            box-shadow: 0 2px #0f766e;
+            transform: translateY(2px);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app" class="p-4 sm:p-8 flex flex-col items-center min-h-screen">
+        <div class="w-full max-w-xl">
+
+            <!-- Header and Status -->
+            <header class="text-center mb-8">
+                <h1 class="text-3xl font-bold text-teal-400">Permanent Local Audio Logger</h1>
+                <p class="text-sm mt-1 text-gray-400">Metadata and Earmarks are in Local Storage. Audio is in IndexedDB.</p>
+            </header>
+
+            <!-- Recording Interface -->
+            <div id="recorder-card" class="card p-6 rounded-xl shadow-2xl mb-8">
+                <div class="flex flex-col items-center space-y-4">
+                    <p id="status-message" class="text-lg font-semibold text-yellow-500 min-h-[1.5rem]">Initializing...</p>
+
+                    <div class="flex space-x-4 w-full">
+                        <button id="start-btn"
+                            class="flex-1 py-3 px-6 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition duration-200 shadow-md transform hover:scale-[1.02] active:scale-[0.98]"
+                            disabled>
+                            <span class="mr-2">⏺️</span> Start Recording
+                        </button>
+                        <button id="stop-btn"
+                            class="flex-1 py-3 px-6 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg transition duration-200 shadow-md transform hover:scale-[1.02] active:scale-[0.98]"
+                            disabled>
+                            <span class="mr-2">⏹️</span> Stop Recording
+                        </button>
+                    </div>
+
+                    <!-- New Earmark Section -->
+                    <div class="flex space-x-4 w-full pt-2">
+                        <input type="text" id="mark-label" placeholder="Optional: Mark label (e.g., 'Key Idea')" class="flex-1 p-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-purple-500 focus:border-purple-500" disabled>
+                        <button id="mark-btn"
+                            class="py-2 px-4 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition duration-200 shadow-md transform hover:scale-[1.02] active:scale-[0.98]"
+                            disabled>
+                            <span class="mr-1">🔖</span> Mark Time
+                        </button>
+                    </div>
+                    
+                    <h3 class="text-lg font-semibold mt-4 text-gray-300">Selected Recording Playback</h3>
+                    <!-- Single Audio Player for Playback -->
+                    <audio id="audio-playback" controls class="w-full mt-2 hidden"></audio>
+                </div>
+            </div>
+
+            <!-- Recordings List -->
+            <div class="card p-6 rounded-xl shadow-2xl">
+                <h2 class="text-xl font-semibold mb-4 text-gray-300">All Saved Recordings</h2>
+                <div id="recordings-list" class="space-y-3 max-h-96 overflow-y-auto pr-2">
+                    <p class="text-gray-500">No recordings saved yet. Start recording!</p>
+                </div>
+                <div class="text-sm mt-4 p-3 bg-gray-800 rounded-lg">
+                    <p class="font-bold text-teal-400">Persistence Details:</p>
+                    <ul class="list-disc list-inside ml-2 text-gray-400 space-y-1">
+                        <li>**Metadata & Earmarks:** Saved in Local Storage.</li>
+                        <li>**Audio Files (Blobs):** Saved permanently in IndexedDB.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script (using Local Storage & IndexedDB) -->
+    <script>
+        // --- CONSTANTS ---
+        const LOCAL_STORAGE_KEY = 'audioRecorderMetadata';
+        const DB_NAME = 'AudioDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'audioBlobs';
+        
+        // --- STATE & DOM ELEMENTS ---
+        let mediaRecorder;
+        let audioChunks = [];
+        let startTime = null;
+        let isRecording = false;
+        let currentMarks = []; // NEW: Array to hold custom timestamps during recording
+        let db; // IndexedDB instance
+
+        const startBtn = document.getElementById('start-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        const markBtn = document.getElementById('mark-btn'); // NEW
+        const markLabelInput = document.getElementById('mark-label'); // NEW
+        const statusMessage = document.getElementById('status-message');
+        const recordingsList = document.getElementById('recordings-list');
+        const audioPlayback = document.getElementById('audio-playback');
+
+        // --- INDEXEDDB FUNCTIONS (UNCHANGED) ---
+
+        /**
+         * Opens and initializes the IndexedDB database.
+         * @returns {Promise<IDBDatabase>} A promise that resolves with the database object.
+         */
+        function openDB() {
+            return new Promise((resolve, reject) => {
+                if (db) {
+                    resolve(db);
+                    return;
+                }
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                    }
+                };
+
+                request.onsuccess = (event) => {
+                    db = event.target.result;
+                    resolve(db);
+                };
+
+                request.onerror = (event) => {
+                    reject('IndexedDB error: ' + event.target.errorCode);
+                };
+            });
+        }
+
+        /**
+         * Saves an audio blob to IndexedDB.
+         * @param {number} id - The unique ID for the record.
+         * @param {Blob} blob - The audio data blob.
+         * @returns {Promise<void>}
+         */
+        function saveAudio(id, blob) {
+            return new Promise(async (resolve, reject) => {
+                const db = await openDB();
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+
+                const request = store.put({ id: id, data: blob });
+
+                request.onsuccess = () => resolve();
+                request.onerror = (event) => reject('IndexedDB save error: ' + event.target.errorCode);
+            });
+        }
+
+        /**
+         * Retrieves an audio blob from IndexedDB.
+         * @param {number} id - The unique ID of the record.
+         * @returns {Promise<Blob>} A promise that resolves with the audio blob.
+         */
+        function getAudio(id) {
+            return new Promise(async (resolve, reject) => {
+                const db = await openDB();
+                const transaction = db.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+
+                const request = store.get(id);
+
+                request.onsuccess = (event) => {
+                    const result = event.target.result;
+                    if (result && result.data) {
+                        resolve(result.data);
+                    } else {
+                        reject('Audio data not found for ID: ' + id);
+                    }
+                };
+                request.onerror = (event) => reject('IndexedDB get error: ' + event.target.errorCode);
+            });
+        }
+
+        // --- LOCAL STORAGE FUNCTIONS (UPDATED FOR MARKS) ---
+
+        /**
+         * Loads all recording metadata from Local Storage.
+         * @returns {Array<Object>} Array of recording metadata objects.
+         */
+        function loadRecordingsFromLocalStorage() {
+            const data = localStorage.getItem(LOCAL_STORAGE_KEY);
+            try {
+                // Ensure 'marks' array exists for older records
+                const records = data ? JSON.parse(data) : [];
+                return records.map(record => ({
+                    ...record,
+                    marks: record.marks || []
+                })).sort((a, b) => b.createdAt - a.createdAt);
+            } catch (e) {
+                console.error("Error parsing Local Storage data:", e);
+                return [];
+            }
+        }
+
+        /**
+         * Saves a new recording metadata object to Local Storage.
+         * @param {Object} newRecord - The metadata object to save.
+         */
+        function saveToLocalStorage(newRecord) {
+            const recordings = loadRecordingsFromLocalStorage();
+            // Add the new record to the start of the array
+            recordings.unshift(newRecord);
+            try {
+                const limitedRecordings = recordings.slice(0, 50); 
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(limitedRecordings));
+                renderRecordings(limitedRecordings); // Re-render the list immediately
+            } catch (e) {
+                console.error("Error saving to Local Storage:", e);
+                statusMessage.textContent = 'Error: Could not save metadata locally (storage full?).';
+            }
+        }
+
+        // --- RECORDER SETUP AND HELPERS (UPDATED) ---
+
+        /**
+         * Sets up the MediaRecorder API access.
+         */
+        function setupRecorder() {
+            if (!navigator.mediaDevices || !window.MediaRecorder) {
+                statusMessage.textContent = 'Error: MediaRecorder not supported in this browser.';
+                startBtn.disabled = true;
+                return;
+            }
+
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
+                    mediaRecorder.onstop = saveRecording;
+
+                    startBtn.disabled = false;
+                    statusMessage.textContent = 'Microphone ready. Press Start to record.';
+                })
+                .catch(error => {
+                    console.error("Microphone access denied:", error);
+                    statusMessage.textContent = 'Microphone access denied. Please grant permission.';
+                    startBtn.disabled = true;
+                });
+        }
+
+        /**
+         * Converts milliseconds to a readable time format (HH:MM:SS.mmm).
+         * @param {number} timestamp - The timestamp in milliseconds.
+         * @returns {string} Formatted date/time string.
+         */
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString('en-US', {
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+            }) + '.' + String(date.getMilliseconds()).padStart(3, '0');
+        }
+        
+        /**
+         * Calculates relative time offset (time since recording start).
+         * @param {number} absoluteTime - Absolute timestamp.
+         * @param {number} startTime - Recording start timestamp.
+         * @returns {string} Formatted relative time (MM:SS.mmm).
+         */
+        function formatRelativeTime(absoluteTime, startTime) {
+            const relativeMs = absoluteTime - startTime;
+            if (relativeMs < 0) return '00:00.000';
+            const seconds = Math.floor(relativeMs / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = seconds % 60;
+            const milliseconds = String(relativeMs % 1000).padStart(3, '0');
+            
+            return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}.${milliseconds}`;
+        }
+
+        // --- CORE LOGIC ---
+
+        /**
+         * Captures a custom timestamp mark during recording. (NEW)
+         */
+        function markTime() {
+            if (!isRecording || !startTime) return;
+            
+            const markTimeMs = Date.now();
+            const label = markLabelInput.value.trim() || `Mark ${currentMarks.length + 1}`;
+            
+            const mark = {
+                time: markTimeMs,
+                label: label,
+                relativeTime: markTimeMs - startTime // Store relative time for easy reference
+            };
+            currentMarks.push(mark);
+            
+            statusMessage.textContent = `Mark added: "${label}" at ${formatRelativeTime(markTimeMs, startTime)}.`;
+            markLabelInput.value = ''; // Clear input after marking
+        }
+
+
+        /**
+         * Executes when the MediaRecorder stops, saving data to Local Storage and IndexedDB.
+         */
+        async function saveRecording() {
+            const endTime = Date.now();
+            const uniqueId = Date.now();
+
+            if (audioChunks.length === 0) {
+                 statusMessage.textContent = 'Error: No audio data captured.';
+                 startBtn.disabled = false;
+                 return;
+            }
+            const mimeType = mediaRecorder.mimeType.split(';')[0] || 'audio/webm';
+            const audioBlob = new Blob(audioChunks, { type: mimeType });
+            const extension = mimeType.split('/')[1] || 'webm';
+            const filename = `${endTime.toString()}.${extension}`; 
+
+            statusMessage.textContent = 'Saving audio permanently...';
+            
+            // 1. Save Audio Blob to IndexedDB
+            try {
+                await saveAudio(uniqueId, audioBlob);
+                
+                // 2. Save Metadata to Local Storage (Timestamps, Marks, & ID)
+                const newRecord = {
+                    id: uniqueId, 
+                    filename: filename,
+                    startTime: startTime,
+                    endTime: endTime,
+                    marks: currentMarks, // Store the collected marks
+                    createdAt: Date.now()
+                };
+                saveToLocalStorage(newRecord);
+                
+                statusMessage.textContent = `Recording complete. Audio saved permanently with ${currentMarks.length} marks.`;
+                statusMessage.classList.remove('text-yellow-500');
+                statusMessage.classList.add('text-green-500');
+
+            } catch (error) {
+                console.error("Error during IndexedDB or Local Storage save:", error);
+                statusMessage.textContent = 'ERROR: Could not save recording permanently.';
+            }
+
+            // Disable mark button, clear input
+            markBtn.disabled = true;
+            markLabelInput.disabled = true;
+            markLabelInput.value = '';
+
+            startBtn.disabled = false;
+        }
+
+        // --- PLAYBACK / DOWNLOAD FUNCTIONS (UNCHANGED) ---
+
+        /**
+         * Plays a selected recording by fetching the blob from IndexedDB.
+         * @param {number} id - The unique ID of the recording to play.
+         */
+        window.playRecording = async function(id) {
+            statusMessage.textContent = `Loading audio for ID ${id}...`;
+            audioPlayback.classList.remove('hidden');
+            audioPlayback.src = ''; 
+
+            try {
+                const blob = await getAudio(id);
+                const url = URL.createObjectURL(blob);
+                audioPlayback.src = url;
+                audioPlayback.play();
+                statusMessage.textContent = `Playing recording (ID: ${id}).`;
+            } catch (error) {
+                console.error("Playback error:", error);
+                statusMessage.textContent = `Error playing audio for ID ${id}. See console.`;
+            }
+        }
+
+        /**
+         * Downloads a selected recording by fetching the blob from IndexedDB.
+         * @param {number} id - The unique ID of the recording to download.
+         * @param {string} filename - The filename for the download.
+         */
+        window.downloadRecording = async function(id, filename) {
+            statusMessage.textContent = `Preparing download for ${filename}...`;
+            try {
+                const blob = await getAudio(id);
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                
+                URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                statusMessage.textContent = `Download of ${filename} started!`;
+            } catch (error) {
+                console.error("Download error:", error);
+                statusMessage.textContent = `Error downloading file ${filename}. See console.`;
+            }
+        }
+
+        // --- UI RENDERING (UPDATED TO SHOW MARKS) ---
+
+        /**
+         * Renders the list of recordings metadata.
+         * @param {Array<Object>} recordings - Array of recording metadata objects.
+         */
+        function renderRecordings(recordings) {
+            recordingsList.innerHTML = '';
+            
+            if (recordings.length === 0) {
+                recordingsList.innerHTML = `<p class="text-gray-500">No recordings saved yet. Start recording!</p>`;
+                return;
+            }
+
+            recordings.forEach((record) => {
+                const startFormatted = formatTime(record.startTime);
+                const endFormatted = formatTime(record.endTime);
+                const durationMs = record.endTime - record.startTime;
+                const durationSec = (durationMs / 1000).toFixed(3);
+                const marksCount = record.marks.length;
+
+                const marksHtml = record.marks.map(mark => `
+                    <li class="text-xs ml-4 border-l pl-2 border-purple-500/50">
+                        <strong class="text-purple-300">${mark.label}:</strong>
+                        <span class="text-gray-400">${formatRelativeTime(mark.time, record.startTime)}</span>
+                    </li>
+                `).join('');
+
+                const listItem = document.createElement('div');
+                listItem.className = 'p-3 card rounded-lg flex flex-col space-y-2';
+                listItem.innerHTML = `
+                    <p class="font-bold text-base text-gray-200 truncate" title="${record.filename}">${record.filename}</p>
+                    <div class="text-sm text-gray-400">
+                        <p><strong class="text-teal-300">Start Time:</strong> ${startFormatted}</p>
+                        <p><strong class="text-teal-300">End Time:</strong> ${endFormatted}</p>
+                        <p class="mt-1"><strong class="text-teal-300">Duration:</strong> ${durationSec} seconds</p>
+                    </div>
+
+                    ${marksCount > 0 ? 
+                        `<div class="mt-2">
+                            <strong class="text-purple-400 block mb-1">Earmarks (${marksCount}):</strong>
+                            <ul class="list-none space-y-1">${marksHtml}</ul>
+                        </div>` : ''
+                    }
+
+                    <div class="flex space-x-2 mt-2 playback-controls">
+                        <button onclick="playRecording(${record.id})"
+                            class="flex-1 py-2 px-4 bg-teal-600 hover:bg-teal-700 text-white font-medium rounded-lg">
+                            <span class="mr-1">▶️</span> Play
+                        </button>
+                        <button onclick="downloadRecording(${record.id}, '${record.filename}')"
+                            class="flex-1 py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg">
+                            <span class="mr-1">⬇️</span> Download
+                        </button>
+                    </div>
+                `;
+                recordingsList.appendChild(listItem);
+            });
+        }
+
+        // --- EVENT BINDING ---
+        startBtn.addEventListener('click', () => {
+            if (!mediaRecorder || isRecording) return;
+            
+            // NEW: Reset marks array
+            currentMarks = []; 
+
+            audioChunks = [];
+            audioPlayback.classList.add('hidden');
+            audioPlayback.src = '';
+            
+            try {
+                mediaRecorder.start();
+                startTime = Date.now();
+                isRecording = true;
+                
+                // Enable/Disable Buttons
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                markBtn.disabled = false; // NEW: Enable Mark button
+                markLabelInput.disabled = false; // NEW: Enable Mark input
+
+                statusMessage.textContent = 'Recording... Press Mark Time to add custom timestamps.';
+                statusMessage.classList.remove('text-yellow-500', 'text-green-500');
+                statusMessage.classList.add('text-red-500');
+            } catch (error) {
+                console.error("Error starting media recorder:", error);
+                statusMessage.textContent = 'Error starting recording. See console.';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        });
+
+        stopBtn.addEventListener('click', () => {
+            if (!mediaRecorder || !isRecording) return;
+            mediaRecorder.stop();
+            isRecording = false;
+            stopBtn.disabled = true;
+            markBtn.disabled = true; // NEW: Disable Mark button
+            markLabelInput.disabled = true; // NEW: Disable Mark input
+            statusMessage.textContent = 'Processing recording...';
+            statusMessage.classList.remove('text-red-500');
+            statusMessage.classList.add('text-yellow-500');
+        });
+        
+        // NEW: Bind Mark Time button
+        markBtn.addEventListener('click', markTime);
+
+
+        // --- INITIALIZATION ---
+
+        /**
+         * Initializes the application by loading existing data, setting up the DB, and setting up the recorder.
+         */
+        async function initializeApp() {
+            try {
+                statusMessage.textContent = 'Initializing database...';
+                await openDB();
+                
+                const initialRecordings = loadRecordingsFromLocalStorage();
+                renderRecordings(initialRecordings);
+                
+                setupRecorder();
+
+            } catch (error) {
+                console.error("Initialization error:", error);
+                statusMessage.textContent = 'FATAL ERROR: Failed to initialize. Check console for IndexedDB status.';
+            }
+        }
+
+        window.onload = initializeApp;
+
+    </script>
+</body>
+</html>
+
