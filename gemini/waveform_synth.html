@@ -1,0 +1,767 @@
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                fontFamily: {
+                    sans: ['Inter', 'sans-serif'],
+                },
+                colors: {
+                    'synth-primary': '#1f2937', // Dark Slate
+                    'synth-secondary': '#4f46e5', // Indigo
+                    'synth-accent': '#fde047', // Yellow
+                }
+            }
+        }
+    }
+</script>
+<style>
+    /* Custom styling for sliders (for better mobile touch) */
+    input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        height: 12px;
+        background: #374151;
+        outline: none;
+        opacity: 0.9;
+        transition: opacity .15s;
+        border-radius: 6px;
+    }
+    input[type="range"]:hover {
+        opacity: 1;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #fde047;
+        cursor: pointer;
+    }
+    input[type="range"]::-moz-range-thumb {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #fde047;
+        cursor: pointer;
+    }
+
+    /* Waveform Canvas Styling */
+    #waveformCanvas {
+        touch-action: none; /* Prevent scrolling when drawing */
+        cursor: crosshair;
+    }
+</style>
+
+<div class="min-h-screen bg-gray-900 text-white font-sans p-4 md:p-8">
+    <h1 class="text-3xl font-bold text-center text-synth-accent mb-6">Waveform Synthesizer</h1>
+
+    <!-- Main Synth Container -->
+    <div class="max-w-4xl mx-auto space-y-6">
+
+        <!-- Waveform Drawing Area -->
+        <div class="bg-synth-primary p-3 rounded-xl shadow-2xl border-2 border-synth-secondary">
+            <h2 class="text-xl font-semibold mb-2 text-center">Draw Your Waveform Cycle</h2>
+            <div id="canvas-container" class="relative w-full aspect-video border border-gray-700 rounded-lg overflow-hidden">
+                <!-- The canvas for drawing the single cycle waveform -->
+                <canvas id="waveformCanvas" class="bg-gray-800 w-full h-full"></canvas>
+            </div>
+            <div class="flex justify-center space-x-4 mt-4">
+                <button id="previewWaveButton" class="px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg font-bold transition duration-150 shadow-md">
+                    <span id="previewIcon">▶</span> Preview Wave (C3)
+                </button>
+                <button id="clearWaveButton" class="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-bold transition duration-150 shadow-md">
+                    Clear Wave
+                </button>
+            </div>
+        </div>
+
+        <!-- Controls Section (ADSR, Filter, Reverb) -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- ADSR Envelope -->
+            <div class="bg-synth-primary p-4 rounded-xl shadow-xl">
+                <h3 class="text-lg font-bold text-synth-accent mb-3 text-center">Amplitude Envelope (ADSR)</h3>
+                <div class="space-y-3">
+                    <label class="block">Attack (<span id="attackVal">0.10</span>s): <input id="attackSlider" type="range" min="0.01" max="1.0" step="0.01" value="0.1" class="w-full"></label>
+                    <label class="block">Decay (<span id="decayVal">0.30</span>s): <input id="decaySlider" type="range" min="0.01" max="1.0" step="0.01" value="0.3" class="w-full"></label>
+                    <label class="block">Sustain (<span id="sustainVal">0.50</span>): <input id="sustainSlider" type="range" min="0.0" max="1.0" step="0.01" value="0.5" class="w-full"></label>
+                    <label class="block">Release (<span id="releaseVal">0.50</span>s): <input id="releaseSlider" type="range" min="0.01" max="2.0" step="0.01" value="0.5" class="w-full"></label>
+                </div>
+            </div>
+
+            <!-- Filter -->
+            <div class="bg-synth-primary p-4 rounded-xl shadow-xl">
+                <h3 class="text-lg font-bold text-synth-accent mb-3 text-center">Lowpass Filter</h3>
+                <div class="space-y-3">
+                    <label class="block">Cutoff (<span id="cutoffVal">5000.00</span> Hz): <input id="cutoffSlider" type="range" min="50" max="20000" step="10" value="5000" class="w-full"></label>
+                    <label class="block">Resonance Q (<span id="qVal">1.00</span>): <input id="qSlider" type="range" min="0.1" max="15.0" step="0.1" value="1.0" class="w-full"></label>
+                </div>
+            </div>
+
+            <!-- Reverb -->
+            <div class="bg-synth-primary p-4 rounded-xl shadow-xl">
+                <h3 class="text-lg font-bold text-synth-accent mb-3 text-center">Global Reverb</h3>
+                <div class="space-y-3 mt-8">
+                    <label class="block">Wet/Dry Mix (<span id="reverbVal">0.20</span>): <input id="reverbSlider" type="range" min="0.0" max="1.0" step="0.01" value="0.2" class="w-full"></label>
+                    <div class="h-16"></div> <!-- Spacer -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Polyphonic Keyboard -->
+        <div class="bg-gray-800 p-4 rounded-xl shadow-2xl">
+            <h2 class="text-xl font-semibold mb-3 text-center text-synth-accent">Polyphonic Keyboard (C4 - G4)</h2>
+            <div id="keyboard" class="flex justify-center space-x-2 md:space-x-4">
+                <!-- Keyboard Buttons are inserted here by JS -->
+            </div>
+            <p class="text-center text-sm text-gray-400 mt-2">Press A, S, D, F, G keys or use touch/mouse.</p>
+        </div>
+
+        <!-- Message Box (Custom alert replacement) -->
+        <div id="messageBox" class="hidden fixed bottom-4 right-4 bg-blue-500 text-white p-3 rounded-lg shadow-xl transition-opacity duration-300"></div>
+
+    </div>
+</div>
+
+<script type="module">
+    // --- Global Canvas Environment Variables (Must be handled) ---
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    // const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+    
+    // --- Web Audio API and Synth State ---
+    let audioCtx;
+    let mainGain;
+    let lowpassFilter;
+    let reverb;
+    let reverbWetGain;
+    let reverbDryGain;
+    
+    let currentPeriodicWave;
+    // Map to manage active polyphonic voices: Map<noteName, {osc, amp}>
+    const voices = new Map(); 
+    const MAX_VOICES = 5;
+
+    // Default ADSR, Filter, Reverb Settings
+    const settings = {
+        attack: 0.1,
+        decay: 0.3,
+        sustain: 0.5,
+        release: 0.5,
+        cutoff: 5000,
+        q: 1.0,
+        reverbMix: 0.2
+    };
+
+    // Keyboard Frequencies (C4 to G4)
+    const notes = [
+        { name: "C4", freq: 261.63, key: 'a' },
+        { name: "D4", freq: 293.66, key: 's' },
+        { name: "E4", freq: 329.63, key: 'd' },
+        { name: "F4", freq: 349.23, key: 'f' },
+        { name: "G4", freq: 392.00, key: 'g' }
+    ];
+
+    // --- Waveform Drawing State and Throttling ---
+    const canvas = document.getElementById('waveformCanvas');
+    const ctx = canvas.getContext('2d');
+    let isDrawing = false;
+    let drawnPoints = []; // Stores raw drawn points [{x: number, y: number}]
+
+    // Throttling: 10 updates per second = 100ms interval
+    const THROTTLE_INTERVAL_MS = 100;
+    let lastWaveUpdate = 0;
+
+    // Preview Oscillator State
+    let previewOscillator = null;
+    let previewGain = null;
+    const PREVIEW_FREQ = 130.81; // C3
+
+    // --- Utility and DSP Functions ---
+
+    /** Creates a simple white noise impulse response for the convolver (reverb). */
+    function createReverbImpulse(context, durationSeconds = 2.5) {
+        const sampleRate = context.sampleRate;
+        const length = sampleRate * durationSeconds;
+        const buffer = context.createBuffer(2, length, sampleRate);
+        
+        for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+            const now = buffer.getChannelData(channel);
+            // Simple exponential decay from random noise
+            for (let i = 0; i < length; i++) {
+                const decay = Math.exp(-3 * i / length);
+                now[i] = (Math.random() * 2 - 1) * decay * 0.8;
+            }
+            // Add initial single-sample impulse
+            now[0] = 1.0; 
+        }
+        return buffer;
+    }
+
+    /** Shows a custom, transient message box. */
+    function showMessage(message, type = 'info') {
+        const box = document.getElementById('messageBox');
+        let bgColor = 'bg-blue-500';
+        if (type === 'success') bgColor = 'bg-green-500';
+        if (type === 'error') bgColor = 'bg-red-500';
+
+        box.className = `fixed bottom-4 right-4 text-white p-3 rounded-lg shadow-xl transition-opacity duration-300 ${bgColor}`;
+        box.textContent = message;
+        box.style.opacity = '1';
+        box.style.display = 'block';
+
+        setTimeout(() => {
+            box.style.opacity = '0';
+            setTimeout(() => { box.style.display = 'none'; }, 300);
+        }, 3000);
+    }
+
+    // --- DSP Core ---
+    const SAMPLE_COUNT = 256;
+    
+    /** Generates a 256-sample array for a default sine wave (-1 to 1). */
+    function generateSineWaveSamples() {
+        const data = new Float32Array(SAMPLE_COUNT);
+        for (let i = 0; i < SAMPLE_COUNT; i++) {
+            data[i] = Math.sin(2 * Math.PI * (i / SAMPLE_COUNT));
+        }
+        return data;
+    }
+
+    /**
+     * Samples the raw drawn path into 256 normalized time-domain points.
+     * Includes interpolation, DC offset removal, and re-normalization.
+     */
+    function sampleWaveform(points, canvasWidth, canvasHeight) {
+        const timeDomainData = new Float32Array(SAMPLE_COUNT);
+        if (points.length === 0) return generateSineWaveSamples();
+
+        for (let n = 0; n < SAMPLE_COUNT; n++) {
+            const targetX = (n / (SAMPLE_COUNT - 1)) * canvasWidth;
+            let p1 = points[0], p2 = points[points.length - 1];
+            
+            // Find interpolation points
+            for (let i = 0; i < points.length - 1; i++) {
+                if (points[i].x <= targetX && points[i+1].x >= targetX) {
+                    p1 = points[i];
+                    p2 = points[i+1];
+                    break;
+                }
+            }
+
+            let yValue;
+            if (p1.x === p2.x) { // Edge case or single point
+                yValue = p1.y;
+            } else {
+                // Linear interpolation (lerp)
+                const ratio = (targetX - p1.x) / (p2.x - p1.x);
+                yValue = p1.y + ratio * (p2.y - p1.y);
+            }
+            
+            // Normalize Y: [0 (top), H (bottom)] -> [-1 (top), 1 (bottom)]
+            const normalizedY = ((yValue / canvasHeight) * 2) - 1;
+            // Web Audio API expects 1 at the top, -1 at the bottom, so we invert canvas Y:
+            timeDomainData[n] = -normalizedY; 
+        }
+
+        // DC Offset Removal
+        const mean = timeDomainData.reduce((a, b) => a + b, 0) / SAMPLE_COUNT;
+        for (let i = 0; i < SAMPLE_COUNT; i++) {
+            timeDomainData[i] -= mean;
+        }
+
+        // Max Amplitude Re-normalization (prevent clipping)
+        let maxAmp = timeDomainData.reduce((max, val) => Math.max(max, Math.abs(val)), 0);
+        if (maxAmp > 0.001) { // Avoid division by zero/near-zero
+            for (let i = 0; i < SAMPLE_COUNT; i++) {
+                timeDomainData[i] /= maxAmp;
+            }
+        }
+
+        return timeDomainData;
+    }
+
+    /**
+     * Simplified Discrete Fourier Transform (DFT) for PeriodicWave coefficients.
+     * Calculates up to the 128th harmonic.
+     */
+    function calculateHarmonics(x) {
+        const N = x.length; // 256
+        const numHarmonics = N / 2; // 128
+        
+        // Coeff arrays must be 1 + numHarmonics long (index 0 is for DC and is ignored for timbre)
+        const real = new Float32Array(numHarmonics + 1);
+        const imag = new Float32Array(numHarmonics + 1);
+
+        for (let k = 1; k <= numHarmonics; k++) {
+            let real_sum = 0;
+            let imag_sum = 0;
+
+            for (let n = 0; n < N; n++) {
+                const angle = (2 * Math.PI * k * n) / N;
+                // DFT Formulas: Real (Cosine) and Imaginary (Sine)
+                real_sum += x[n] * Math.cos(angle);
+                imag_sum -= x[n] * Math.sin(angle); 
+            }
+            
+            // Normalize by N
+            real[k] = real_sum / N;
+            imag[k] = imag_sum / N;
+        }
+
+        return { real, imag };
+    }
+
+    /** Draws the resulting time-domain data on the canvas for visualization. */
+    function drawWaveform(timeDomainData) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw center line
+        ctx.strokeStyle = '#374151';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height / 2);
+        ctx.lineTo(canvas.width, canvas.height / 2);
+        ctx.stroke();
+
+        // Draw the wave
+        ctx.strokeStyle = '#fde047';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        
+        if (timeDomainData.length > 0) {
+            const stepX = canvas.width / (timeDomainData.length - 1);
+            
+            for (let i = 0; i < timeDomainData.length; i++) {
+                const x = i * stepX;
+                // Map [-1, 1] to visualization Y (0.45 for padding)
+                const y = canvas.height * 0.5 - (timeDomainData[i] * canvas.height * 0.45);
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+        } else {
+            // Draw flat line if no data
+            ctx.moveTo(0, canvas.height / 2);
+            ctx.lineTo(canvas.width, canvas.height / 2);
+        }
+
+        ctx.stroke();
+    }
+    
+    /** * The core function that handles the DSP pipeline and applies the new waveform.
+     * Throttled to 10 times per second.
+     */
+    function processAndApplyWaveform(data, width, height, force = false) {
+        const now = Date.now();
+        if (!force && now - lastWaveUpdate < THROTTLE_INTERVAL_MS) {
+            return; // Throttling active
+        }
+        lastWaveUpdate = now;
+
+        const timeDomainData = sampleWaveform(data, width, height);
+        const { real, imag } = calculateHarmonics(timeDomainData);
+        
+        // Create the new PeriodicWave object
+        if (audioCtx) {
+            currentPeriodicWave = audioCtx.createPeriodicWave(real, imag, { disableNormalization: false });
+            
+            // Update all active oscillators immediately
+            updateOscillatorWaveform(currentPeriodicWave);
+        }
+        
+        // Redraw the visually corrected wave
+        drawWaveform(timeDomainData);
+    }
+    
+    /** Updates the PeriodicWave on all active poly voices and the preview oscillator. */
+    function updateOscillatorWaveform(periodicWave) {
+        if (!periodicWave) return;
+
+        voices.forEach(({ osc }) => {
+            if (osc) osc.setPeriodicWave(periodicWave);
+        });
+
+        if (previewOscillator) {
+            previewOscillator.setPeriodicWave(periodicWave);
+        }
+    }
+
+    // --- Audio Initialization and Setup ---
+
+    function initializeAudio() {
+        if (audioCtx) return;
+        
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch(e) {
+            showMessage("Web Audio API is not supported in this browser.", 'error');
+            return;
+        }
+
+        // Master Gain
+        mainGain = audioCtx.createGain();
+        mainGain.gain.setValueAtTime(0.5, audioCtx.currentTime); 
+        
+        // Reverb setup
+        reverb = audioCtx.createConvolver();
+        reverb.buffer = createReverbImpulse(audioCtx, 2.5); 
+
+        reverbWetGain = audioCtx.createGain();
+        reverbDryGain = audioCtx.createGain();
+        
+        // Initial reverb mix
+        reverbWetGain.gain.setValueAtTime(settings.reverbMix, audioCtx.currentTime);
+        reverbDryGain.gain.setValueAtTime(1.0 - settings.reverbMix, audioCtx.currentTime);
+
+        // Lowpass Filter setup
+        lowpassFilter = audioCtx.createBiquadFilter();
+        lowpassFilter.type = "lowpass";
+        lowpassFilter.frequency.setValueAtTime(settings.cutoff, audioCtx.currentTime);
+        lowpassFilter.Q.setValueAtTime(settings.q, audioCtx.currentTime);
+        
+        // Routing: Voice -> Filter -> (Dry + Reverb Wet) -> Main Gain -> Destination
+        
+        lowpassFilter.connect(reverbDryGain); // Dry path
+        lowpassFilter.connect(reverbWetGain).connect(reverb).connect(mainGain); // Wet path
+        reverbDryGain.connect(mainGain);
+        mainGain.connect(audioCtx.destination);
+
+        // Initial waveform calculation (sine wave)
+        processAndApplyWaveform([], canvas.width, canvas.height, true);
+        
+        showMessage("Synth ready. Audio Context unlocked.", 'success');
+    }
+
+    // --- Synth Voice Management ---
+    
+    function startNote(noteName, frequency) {
+        if (!audioCtx) initializeAudio();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        stopPreview(); // Stop preview if a key is pressed
+
+        // Voice Limiting / Voice Stealing
+        if (voices.size >= MAX_VOICES) {
+            const oldestNote = voices.keys().next().value;
+            stopNote(oldestNote, 0); 
+        }
+
+        const now = audioCtx.currentTime;
+
+        // 1. Amplitude Node (ADSR envelope)
+        const amp = audioCtx.createGain();
+        amp.gain.setValueAtTime(0.001, now); 
+
+        // 2. Oscillator
+        const osc = audioCtx.createOscillator();
+        osc.frequency.setValueAtTime(frequency, now);
+        
+        // 3. Connect: Osc -> Amp -> Filter
+        osc.connect(amp);
+        amp.connect(lowpassFilter);
+        
+        // 4. ADSR Attack/Decay
+        amp.gain.exponentialRampToValueAtTime(1.0, now + settings.attack);
+        amp.gain.exponentialRampToValueAtTime(settings.sustain, now + settings.attack + settings.decay);
+
+        osc.start(now);
+        
+        voices.set(noteName, { osc, amp, frequency });
+        
+        // Apply current waveform
+        if (currentPeriodicWave) {
+            osc.setPeriodicWave(currentPeriodicWave);
+        }
+    }
+
+    function stopNote(noteName) {
+        const voice = voices.get(noteName);
+        if (!voice) return;
+
+        const now = audioCtx.currentTime;
+        const { osc, amp } = voice;
+        
+        amp.gain.cancelScheduledValues(now);
+
+        // ADSR Release
+        amp.gain.exponentialRampToValueAtTime(0.0001, now + settings.release);
+
+        // Stop oscillator after release completes
+        osc.stop(now + settings.release + 0.05); 
+        
+        // Clean up from the map
+        setTimeout(() => {
+            if (voices.get(noteName) === voice) {
+                voices.delete(noteName);
+                amp.disconnect();
+                osc.disconnect();
+            }
+        }, (settings.release + 0.05) * 1000);
+    }
+
+    // --- Preview Oscillator Logic ---
+
+    function startPreview() {
+        if (!audioCtx) initializeAudio();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+
+        if (previewOscillator) return; 
+
+        const now = audioCtx.currentTime;
+
+        previewOscillator = audioCtx.createOscillator();
+        previewGain = audioCtx.createGain();
+        
+        previewOscillator.frequency.setValueAtTime(PREVIEW_FREQ, now);
+        previewGain.gain.setValueAtTime(0.4, now);
+        
+        if (currentPeriodicWave) {
+            previewOscillator.setPeriodicWave(currentPeriodicWave);
+        }
+
+        // Connect: Osc -> Gain -> Filter (Continuous loop)
+        previewOscillator.connect(previewGain).connect(lowpassFilter);
+
+        previewOscillator.start(0);
+
+        // UI Update
+        const button = document.getElementById('previewWaveButton');
+        button.classList.remove('bg-green-600');
+        button.classList.add('bg-orange-500');
+        document.getElementById('previewIcon').textContent = '■';
+    }
+
+    function stopPreview() {
+        if (!previewOscillator) return;
+
+        const now = audioCtx.currentTime;
+        
+        // Fade out quickly
+        previewGain.gain.cancelScheduledValues(now);
+        previewGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05); 
+        
+        previewOscillator.stop(now + 0.1); 
+        previewOscillator = null;
+        previewGain = null;
+
+        // UI Update
+        const button = document.getElementById('previewWaveButton');
+        button.classList.remove('bg-orange-500');
+        button.classList.add('bg-green-600');
+        document.getElementById('previewIcon').textContent = '▶';
+    }
+
+
+    // --- UI Event Handlers ---
+
+    function setupCanvasDrawing() {
+        const getCoord = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            let clientX, clientY;
+            
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+
+            return {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+        };
+
+        const startDrawing = (e) => {
+            if (!audioCtx) initializeAudio();
+            e.preventDefault();
+            stopPreview(); // Stop preview on interaction
+
+            isDrawing = true;
+            drawnPoints = [];
+            const coord = getCoord(e);
+            drawnPoints.push(coord);
+        };
+
+        const draw = (e) => {
+            if (!isDrawing) return;
+            e.preventDefault();
+            
+            const coord = getCoord(e);
+            drawnPoints.push(coord);
+            
+            // THOUSANDS of calls will hit this. ProcessAndApplyWaveform handles the throttling.
+            processAndApplyWaveform(drawnPoints, canvas.width, canvas.height);
+        };
+
+        const stopDrawing = (e) => {
+            if (!isDrawing) return;
+            e.preventDefault();
+            isDrawing = false;
+            // Force a final, non-throttled update
+            processAndApplyWaveform(drawnPoints, canvas.width, canvas.height, true);
+        };
+        
+        // Mouse Events
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        window.addEventListener('mouseup', stopDrawing);
+        
+        // Touch Events
+        canvas.addEventListener('touchstart', startDrawing);
+        canvas.addEventListener('touchmove', draw);
+        window.addEventListener('touchend', stopDrawing);
+        window.addEventListener('touchcancel', stopDrawing);
+    }
+    
+    function setupControls() {
+        // Helper to update settings and audio parameters in real-time
+        const setupSlider = (id, settingKey, outputId) => {
+            const slider = document.getElementById(id);
+            const output = document.getElementById(outputId);
+            
+            slider.addEventListener('input', (e) => {
+                const value = parseFloat(e.target.value);
+                settings[settingKey] = value;
+                output.textContent = value.toFixed(settingKey === 'cutoff' ? 2 : 2);
+                
+                if (!audioCtx) return;
+                const now = audioCtx.currentTime;
+
+                if (settingKey === 'cutoff') {
+                    // Smooth ramp for filter cutoff
+                    lowpassFilter.frequency.exponentialRampToValueAtTime(value, now + 0.05);
+                } else if (settingKey === 'q') {
+                    lowpassFilter.Q.setValueAtTime(value, now);
+                } else if (settingKey === 'reverbMix') {
+                    // Crossfade gains
+                    reverbWetGain.gain.setValueAtTime(value, now + 0.05);
+                    reverbDryGain.gain.setValueAtTime(1.0 - value, now + 0.05);
+                }
+            });
+        };
+
+        // Initialize sliders
+        setupSlider('attackSlider', 'attack', 'attackVal');
+        setupSlider('decaySlider', 'decay', 'decayVal');
+        setupSlider('sustainSlider', 'sustain', 'sustainVal');
+        setupSlider('releaseSlider', 'release', 'releaseVal');
+        setupSlider('cutoffSlider', 'cutoff', 'cutoffVal');
+        setupSlider('qSlider', 'q', 'qVal');
+        setupSlider('reverbSlider', 'reverbMix', 'reverbVal');
+
+        // Preview Button
+        document.getElementById('previewWaveButton').addEventListener('click', () => {
+            if (previewOscillator) {
+                stopPreview();
+            } else {
+                startPreview();
+            }
+        });
+
+        // Clear Button
+        document.getElementById('clearWaveButton').addEventListener('click', () => {
+            stopPreview();
+            drawnPoints = [];
+            // Force update to recalculate/apply the default sine wave
+            processAndApplyWaveform([], canvas.width, canvas.height, true);
+            showMessage("Waveform reset to default sine.", 'success');
+        });
+    }
+
+    function setupKeyboard() {
+        const keyboardDiv = document.getElementById('keyboard');
+        const activeKeys = new Set(); 
+
+        notes.forEach(note => {
+            // Create UI Button
+            const button = document.createElement('button');
+            button.className = "flex-1 p-4 md:p-6 bg-synth-secondary hover:bg-indigo-700 active:bg-indigo-800 rounded-lg shadow-xl text-2xl font-extrabold transition duration-100 transform active:scale-95 touch-manipulation";
+            button.textContent = note.name;
+            button.setAttribute('data-note', note.name);
+            keyboardDiv.appendChild(button);
+
+            // Mouse/Touch Start
+            const play = (e) => {
+                e.preventDefault();
+                if (!voices.has(note.name)) {
+                    startNote(note.name, note.freq);
+                }
+            };
+            
+            // Mouse/Touch Stop
+            const release = () => {
+                stopNote(note.name);
+            };
+
+            button.addEventListener('mousedown', play);
+            button.addEventListener('mouseup', release);
+            button.addEventListener('mouseleave', () => { if (voices.has(note.name)) release(); });
+            button.addEventListener('touchstart', play);
+            button.addEventListener('touchend', release);
+        });
+
+        // Keyboard (A-G) Events
+        document.addEventListener('keydown', (e) => {
+            const noteData = notes.find(n => n.key === e.key.toLowerCase());
+            if (noteData && !activeKeys.has(noteData.name)) {
+                activeKeys.add(noteData.name);
+                startNote(noteData.name, noteData.freq);
+                // Visual feedback
+                const button = document.querySelector(`[data-note="${noteData.name}"]`);
+                if (button) button.classList.add('ring-4', 'ring-synth-accent');
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            const noteData = notes.find(n => n.key === e.key.toLowerCase());
+            if (noteData && activeKeys.has(noteData.name)) {
+                activeKeys.delete(noteData.name);
+                stopNote(noteData.name);
+                // Visual feedback
+                const button = document.querySelector(`[data-note="${noteData.name}"]`);
+                if (button) button.classList.remove('ring-4', 'ring-synth-accent');
+            }
+        });
+    }
+
+    function handleResize() {
+        // Ensure canvas dimensions match container for accurate drawing/sampling
+        const container = document.getElementById('canvas-container');
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+
+        if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+            // Force redraw on resize
+            processAndApplyWaveform(drawnPoints, canvas.width, canvas.height, true);
+        }
+    }
+
+    // --- Initialization on Load ---
+
+    window.onload = function() {
+        // Setup for responsive canvas sizing
+        handleResize();
+        window.addEventListener('resize', handleResize);
+        
+        setupCanvasDrawing();
+        setupControls();
+        setupKeyboard();
+        
+        // Draw the initial sine wave visualization
+        const timeDomainData = generateSineWaveSamples();
+        drawWaveform(timeDomainData); 
+        
+        // Note: AudioContext initialization is deferred to the first user interaction 
+        // (draw, button click, or key press) to comply with browser autoplay policies.
+    };
+
+</script>
+

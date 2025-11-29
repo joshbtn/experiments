@@ -15,3 +15,4 @@ Single-page apps generated with Gemini AI:
 - `teapot.html` - Teapot application
 - `3d_lane_game.html` - 3D lane racing game
 - `tap_game.html` - Tap game application
+- `waveform_synth.html` - Waveform synthesizer
