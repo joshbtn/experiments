@@ -11,3 +11,4 @@ Single-page apps generated with Gemini AI:
 - `vr_meme.html` - VR meme generator
 - `record.html` - Recording application
 - `semantic.html` - Semantic web experiment
+- `card_7_track.html` - Card tracking application
