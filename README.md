@@ -9,3 +9,4 @@ Single-page apps generated with Gemini AI:
 - `semantic.html` - Semantic web experiment
 - `sound_machime.html` - Sound machine application
 - `text_edit.html` - Text editor application
+- `vr_meme.html` - VR meme generator
