@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Lane Dodger</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js and TWEEN.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        setLogLevel('Debug');
+
+        // Global variables provided by the environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db = null;
+        let auth = null;
+        let userId = null;
+        let highscoreRef = null;
+
+        let gameInstance = null; // To hold the game class instance
+
+        /**
+         * Initializes Firebase and authenticates the user.
+         */
+        async function initFirebase() {
+            if (firebaseConfig) {
+                try {
+                    const app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+
+                    // Sign in using custom token or anonymously
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            userId = user.uid;
+                            // Set high score path for private data
+                            highscoreRef = doc(db, `artifacts/${appId}/users/${userId}/lanedodger`, 'highscore');
+                            if (gameInstance) {
+                                gameInstance.setHighscoreRef(highscoreRef);
+                                gameInstance.loadHighscore();
+                            }
+                        } else {
+                            // User is signed out, use a random ID for temporary reference
+                            userId = crypto.randomUUID();
+                        }
+                    });
+
+                } catch (error) {
+                    console.error("Error initializing Firebase:", error);
+                }
+            } else {
+                console.warn("Firebase config not found. High score persistence disabled.");
+                // Use a local mock for highscore persistence
+                if (gameInstance) {
+                    gameInstance.setHighscoreRef(null);
+                    gameInstance.loadHighscore(); // This will default to local storage fallback
+                }
+            }
+        }
+
+        /**
+         * The core 3D Lane Dodger game class.
+         */
+        class LaneDodger {
+            constructor() {
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+
+                this.laneWidth = 3;
+                this.lanePositions = [-this.laneWidth, 0, this.laneWidth]; // Lane 0, 1, 2
+                this.playerSpeed = 0.3; // Obstacle Z-velocity
+                this.playerLane = 1;
+                this.score = 0;
+                this.highScore = 0;
+                this.isGameOver = true;
+                this.streakCounter = 0;
+                this.difficultyFactor = 0;
+                this.gameTime = 0;
+                this.lastSpawnTime = 0;
+                this.spawnInterval = 1000; // ms
+
+                this.playerMesh = null;
+                this.obstacles = [];
+
+                this.highscoreRef = null;
+                this.isSaving = false;
+
+                this.initGraphics();
+                this.createObjects();
+                this.setupControls();
+                this.updateUI();
+            }
+
+            setHighscoreRef(ref) {
+                this.highscoreRef = ref;
+            }
+
+            /**
+             * Loads high score from Firestore or localStorage fallback.
+             */
+            loadHighscore() {
+                if (this.highscoreRef) {
+                    // Set up real-time listener for high score
+                    onSnapshot(this.highscoreRef, (doc) => {
+                        if (doc.exists()) {
+                            this.highScore = doc.data().score || 0;
+                        } else {
+                            this.highScore = 0;
+                            // Initialize document if it doesn't exist
+                            setDoc(this.highscoreRef, { score: 0 }).catch(e => console.error("Error initializing highscore:", e));
+                        }
+                        this.updateUI();
+                    }, (error) => {
+                        console.error("Firestore snapshot error, falling back to localStorage:", error);
+                        this.loadHighscoreLocal();
+                    });
+                } else {
+                    this.loadHighscoreLocal();
+                }
+            }
+
+            loadHighscoreLocal() {
+                this.highScore = parseInt(localStorage.getItem('laneDodgerHighscore') || '0', 10);
+                this.updateUI();
+            }
+
+            /**
+             * Saves the current score if it's a new high score.
+             */
+            saveHighscore() {
+                if (this.score > this.highScore) {
+                    this.highScore = this.score;
+                    if (this.highscoreRef && !this.isSaving) {
+                        this.isSaving = true;
+                        setDoc(this.highscoreRef, { score: this.highScore })
+                            .then(() => { this.isSaving = false; })
+                            .catch(error => {
+                                console.error("Error saving high score to Firestore, using localStorage fallback:", error);
+                                localStorage.setItem('laneDodgerHighscore', this.highScore.toString());
+                                this.isSaving = false;
+                            });
+                    } else if (!this.highscoreRef) {
+                        localStorage.setItem('laneDodgerHighscore', this.highScore.toString());
+                    }
+                    this.updateUI();
+                }
+            }
+
+            initGraphics() {
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.domElement.style.backgroundColor = '#0a0a0a';
+                document.getElementById('game-container').appendChild(this.renderer.domElement);
+
+                // Black fog for distance effect
+                this.scene.fog = new THREE.Fog(0x000000, 10, 80);
+
+                // Camera position (third-person elevated)
+                this.camera.position.set(0, 5, 10);
+                this.camera.lookAt(0, 0, 0);
+
+                // Lighting
+                this.scene.add(new THREE.AmbientLight(0x444444));
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(0, 10, 10);
+                this.scene.add(directionalLight);
+
+                window.addEventListener('resize', this.onWindowResize.bind(this), false);
+            }
+
+            onWindowResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+
+            createObjects() {
+                // Player Model: Green Pyramid
+                const geometry = new THREE.ConeGeometry(0.8, 1.5, 4);
+                const material = new THREE.MeshPhongMaterial({ color: 0x00ff00, flatShading: true });
+                this.playerMesh = new THREE.Mesh(geometry, material);
+                this.playerMesh.position.set(this.lanePositions[this.playerLane], 1, 0);
+                this.playerMesh.rotation.x = Math.PI / 2;
+                this.playerMesh.rotation.z = Math.PI / 4;
+                this.scene.add(this.playerMesh);
+
+                // Road and Markers (Sci-fi aesthetic)
+                const roadGeometry = new THREE.BoxGeometry(this.laneWidth * 3 + 0.2, 0.1, 500);
+                const roadMaterial = new THREE.MeshPhongMaterial({ color: 0x111111 });
+                const roadMesh = new THREE.Mesh(roadGeometry, roadMaterial);
+                roadMesh.position.z = -200; 
+                this.scene.add(roadMesh);
+
+                const lineMaterial = new THREE.MeshBasicMaterial({ color: 0x39ff14, transparent: true, opacity: 0.8 });
+                const lineGeometry = new THREE.BoxGeometry(0.05, 0.1, 500);
+
+                // Lane Markers
+                [-this.laneWidth / 2, this.laneWidth / 2].forEach(x => {
+                    const line = new THREE.Mesh(lineGeometry, lineMaterial);
+                    line.position.set(x, 0.1, -200);
+                    this.scene.add(line);
+                });
+
+                // Obstacle Group
+                this.obstacleGroup = new THREE.Group();
+                this.scene.add(this.obstacleGroup);
+            }
+
+            setupControls() {
+                // Keyboard Controls
+                document.addEventListener('keydown', (event) => {
+                    if (this.isGameOver) {
+                        if (event.key === 'Enter') this.startGame();
+                        return;
+                    }
+                    if (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a') {
+                        this.changeLane(-1);
+                    } else if (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd') {
+                        this.changeLane(1);
+                    }
+                });
+
+                // Touch/Click Controls
+                document.getElementById('left-btn').addEventListener('click', () => {
+                    if (!this.isGameOver) this.changeLane(-1);
+                });
+                document.getElementById('right-btn').addEventListener('click', () => {
+                    if (!this.isGameOver) this.changeLane(1);
+                });
+                document.getElementById('restart-btn').addEventListener('click', () => {
+                    this.startGame();
+                });
+            }
+
+            changeLane(direction) {
+                const newLane = this.playerLane + direction;
+                if (newLane >= 0 && newLane <= 2) {
+                    this.playerLane = newLane;
+
+                    // New Feature: Lane Transition Trail
+                    this.createTransitionTrail();
+
+                    // Animate position and tilt using TWEEN.js
+                    new TWEEN.Tween(this.playerMesh.position)
+                        .to({ x: this.lanePositions[this.playerLane] }, 150)
+                        .easing(TWEEN.Easing.Quadratic.Out)
+                        .start();
+
+                    const targetTilt = direction * -0.5; // Tilt Z-axis for banking
+                    new TWEEN.Tween(this.playerMesh.rotation)
+                        .to({ y: targetTilt }, 75)
+                        .easing(TWEEN.Easing.Quadratic.Out)
+                        .chain(
+                            new TWEEN.Tween(this.playerMesh.rotation)
+                                .to({ y: 0 }, 75)
+                                .easing(TWEEN.Easing.Quadratic.In)
+                        )
+                        .start();
+                }
+            }
+
+            /**
+             * New Feature: Creates a fading visual trail when the player changes lanes.
+             */
+            createTransitionTrail() {
+                // Clone the mesh and use a wireframe/subtle material
+                const trailMesh = this.playerMesh.clone();
+                const trailMaterial = new THREE.MeshBasicMaterial({
+                    color: 0x00ff00,
+                    transparent: true,
+                    opacity: 0.3,
+                    wireframe: true
+                });
+                trailMesh.material = trailMaterial;
+
+                this.scene.add(trailMesh);
+
+                new TWEEN.Tween(trailMesh.material)
+                    .to({ opacity: 0 }, 200)
+                    .easing(TWEEN.Easing.Cubic.In)
+                    .onComplete(() => {
+                        this.scene.remove(trailMesh);
+                        trailMesh.geometry.dispose();
+                        trailMesh.material.dispose();
+                    })
+                    .start();
+            }
+
+            startGame() {
+                if (!this.isGameOver) return;
+
+                // Reset state
+                this.isGameOver = false;
+                this.score = 0;
+                this.gameTime = 0;
+                this.lastSpawnTime = performance.now();
+                this.difficultyFactor = 0;
+                this.playerSpeed = 0.3;
+                this.spawnInterval = 1000;
+                this.streakCounter = 0;
+
+                // Clear existing obstacles
+                while (this.obstacleGroup.children.length > 0) {
+                    const cube = this.obstacleGroup.children[0];
+                    this.obstacleGroup.remove(cube);
+                    cube.geometry.dispose();
+                    cube.material.dispose();
+                }
+
+                // Re-add player if it was removed
+                if (!this.scene.children.includes(this.playerMesh)) {
+                    this.scene.add(this.playerMesh);
+                }
+
+                // Hide message UI
+                document.getElementById('message-box').classList.add('opacity-0');
+                document.getElementById('message-box').classList.add('pointer-events-none');
+                
+                this.updateUI();
+            }
+
+            gameOver() {
+                if (this.isGameOver) return;
+                this.isGameOver = true;
+                this.saveHighscore();
+
+                // New Feature: Collision Particle Burst
+                this.createCollisionBurst(this.playerMesh.position.clone());
+                this.scene.remove(this.playerMesh); // Remove player on collision
+
+                // Show Game Over UI
+                document.getElementById('message-title').textContent = 'GAME OVER!';
+                document.getElementById('final-score').textContent = `SCORE: ${this.score}`;
+                document.getElementById('high-score').textContent = `HIGH SCORE: ${this.highScore}`;
+
+                document.getElementById('message-box').classList.remove('opacity-0');
+                document.getElementById('message-box').classList.remove('pointer-events-none');
+                document.getElementById('start-btn').classList.add('hidden');
+                document.getElementById('restart-btn-container').classList.remove('hidden');
+
+                // Flash red on screen for game over
+                this.screenFlash(0xff0000, 300);
+            }
+
+            /**
+             * New Feature: Creates a burst of particles on collision.
+             */
+            createCollisionBurst(position) {
+                const particleCount = 30;
+                const particleGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+                const initialMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 1 });
+
+                for (let i = 0; i < particleCount; i++) {
+                    const particle = new THREE.Mesh(particleGeometry, initialMaterial.clone());
+                    particle.position.copy(position);
+
+                    // Random velocity vector
+                    const speed = Math.random() * 0.5 + 0.5;
+                    const angle = Math.random() * Math.PI * 2;
+                    particle.userData.velocity = new THREE.Vector3(
+                        Math.cos(angle) * speed,
+                        Math.sin(angle) * speed,
+                        Math.random() * 2 // Small initial Z velocity
+                    );
+
+                    this.scene.add(particle);
+
+                    // Tween for fade out and shrink
+                    new TWEEN.Tween(particle.material)
+                        .to({ opacity: 0 }, 500)
+                        .start();
+
+                    new TWEEN.Tween(particle.scale)
+                        .to({ x: 0.1, y: 0.1, z: 0.1 }, 500)
+                        .start();
+
+                    // Custom animation loop for movement
+                    particle.userData.animate = () => {
+                        particle.position.add(particle.userData.velocity.clone().multiplyScalar(0.05));
+                        if (particle.material.opacity > 0) {
+                            requestAnimationFrame(particle.userData.animate);
+                        } else {
+                            this.scene.remove(particle);
+                            particle.geometry.dispose();
+                            particle.material.dispose();
+                        }
+                    };
+                    particle.userData.animate();
+                }
+            }
+
+            createCube(lane, type = 'standard') {
+                const size = 1.5;
+                const geometry = new THREE.BoxGeometry(size, size, size);
+                let material;
+
+                let pointsValue = 1;
+
+                if (type === 'phantom') {
+                    // New Obstacle: The Phantom Cube (subtle cyan, translucent)
+                    material = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.15 });
+                    pointsValue = -5; // Penalty
+                } else {
+                    // Standard Red Cube
+                    material = new THREE.MeshPhongMaterial({ color: 0xff0000, flatShading: true });
+                }
+
+                const cube = new THREE.Mesh(geometry, material);
+                cube.position.set(this.lanePositions[lane], size / 2, -70); // Spawn far away
+                cube.userData.lane = lane;
+                cube.userData.type = type;
+                cube.userData.points = pointsValue;
+                this.obstacleGroup.add(cube);
+                this.obstacles.push(cube);
+            }
+
+            spawnObstacle() {
+                // Determine spawn pattern based on a weighted random chance
+                const random = Math.random();
+
+                if (random < 0.10) {
+                    // 10% chance for Phantom Cube (New Feature)
+                    const lane = Math.floor(Math.random() * 3);
+                    this.createCube(lane, 'phantom');
+                } else if (random < 0.35) {
+                    // 25% chance for Splitter Blockade (New Feature)
+                    // Blocks lanes 0 and 2, forcing player into the center (Lane 1)
+                    this.createCube(0, 'standard');
+                    this.createCube(2, 'standard');
+                } else {
+                    // 65% chance for Standard Single Cube
+                    const lane = Math.floor(Math.random() * 3);
+                    this.createCube(lane, 'standard');
+                }
+            }
+
+            updateObstacles() {
+                // Calculate speed based on difficulty factor
+                const deltaZ = this.playerSpeed + this.difficultyFactor * 0.0005;
+
+                for (let i = this.obstacles.length - 1; i >= 0; i--) {
+                    const cube = this.obstacles[i];
+                    cube.position.z += deltaZ;
+
+                    // Check for successful pass (only non-phantom cubes give streak points)
+                    if (cube.position.z > this.camera.position.z && !cube.userData.passed) {
+                        cube.userData.passed = true;
+                        if (cube.userData.type !== 'phantom') {
+                            this.score += cube.userData.points;
+                            this.streakCounter++;
+                            this.updateUI();
+                            // New Feature: Speed Streak Pulse
+                            this.checkStreakPulse();
+                        }
+                    }
+
+                    // Check for collision (only for non-passed obstacles near player Z=0)
+                    if (!cube.userData.collided && cube.position.z > 0 && cube.position.z < 2) {
+                        if (cube.userData.lane === this.playerLane) {
+                            cube.userData.collided = true; // Mark as collided
+
+                            if (cube.userData.type === 'phantom') {
+                                // Phantom cube hit: deduct score, don't end game
+                                this.score += cube.userData.points;
+                                this.streakCounter = 0; // Break streak
+                                this.updateUI();
+                                // Quickly fade the phantom cube out
+                                new TWEEN.Tween(cube.material)
+                                    .to({ opacity: 0 }, 100)
+                                    .start();
+                                // Brief red flash on screen for penalty feedback
+                                this.screenFlash(0xff0000, 100);
+                            } else {
+                                // Standard cube hit: Game Over
+                                this.gameOver();
+                                return;
+                            }
+                        }
+                    }
+
+                    // Remove if out of view
+                    if (cube.position.z > 10) {
+                        this.obstacleGroup.remove(cube);
+                        this.obstacles.splice(i, 1);
+                        cube.geometry.dispose();
+                        cube.material.dispose();
+                    }
+                }
+            }
+
+            /**
+             * New Feature: Screen pulse on streak milestones.
+             */
+            checkStreakPulse() {
+                if (this.streakCounter > 0 && this.streakCounter % 20 === 0) {
+                    this.screenFlash(0x39ff14, 50); // Neon green flash
+                }
+            }
+
+            screenFlash(color, duration) {
+                const flashElement = document.getElementById('flash-overlay');
+                // Ensure color is a 6-digit hex string
+                flashElement.style.backgroundColor = `#${color.toString(16).padStart(6, '0')}`;
+                flashElement.classList.remove('hidden');
+                flashElement.style.opacity = 0.5;
+
+                new TWEEN.Tween({ opacity: 0.5 })
+                    .to({ opacity: 0 }, duration)
+                    .onUpdate((obj) => {
+                        flashElement.style.opacity = obj.opacity;
+                    })
+                    .onComplete(() => {
+                        flashElement.classList.add('hidden');
+                        flashElement.style.opacity = 0;
+                    })
+                    .start();
+            }
+
+            updateDifficulty() {
+                this.difficultyFactor = this.gameTime / 60000; // Increase difficulty over time (1 minute)
+                this.playerSpeed = Math.min(0.3 + this.difficultyFactor * 0.3, 1.5); // Cap max speed
+                this.spawnInterval = Math.max(1000 - this.difficultyFactor * 800, 200); // Cap min interval
+            }
+
+            updateUI() {
+                document.getElementById('score-display').textContent = `SCORE: ${this.score}`;
+                document.getElementById('highscore-display').textContent = `HIGH SCORE: ${this.highScore}`;
+            }
+
+            animate(time) {
+                requestAnimationFrame(this.animate.bind(this));
+                TWEEN.update(time);
+
+                if (!this.isGameOver) {
+                    const deltaTime = time - (this.lastFrameTime || time);
+                    this.gameTime += deltaTime;
+                    this.updateDifficulty();
+
+                    if (time - this.lastSpawnTime > this.spawnInterval) {
+                        this.spawnObstacle();
+                        this.lastSpawnTime = time;
+                    }
+
+                    this.updateObstacles();
+                    this.updateUI();
+                }
+
+                this.renderer.render(this.scene, this.camera);
+                this.lastFrameTime = time;
+            }
+        }
+
+        window.onload = function() {
+            // Set up main game instance
+            gameInstance = new LaneDodger();
+
+            // Set up main UI buttons
+            document.getElementById('start-btn').addEventListener('click', () => {
+                gameInstance.startGame();
+            });
+            document.getElementById('restart-btn').addEventListener('click', () => {
+                gameInstance.startGame();
+            });
+
+            // Initialize Firebase and start the game loop
+            initFirebase();
+            gameInstance.animate();
+        };
+
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+        }
+        #game-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Allows clicks to pass through */
+            z-index: 10;
+        }
+        #flash-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: transparent;
+            opacity: 0;
+            transition: opacity 0.05s ease-out; /* Fast transition for flash */
+            pointer-events: none;
+            z-index: 20;
+        }
+        .neon-glow {
+            text-shadow: 0 0 5px #00ff00, 0 0 10px #00ff00;
+        }
+        #message-box {
+            /* Initial state for transition */
+            opacity: 1;
+            pointer-events: auto;
+        }
+        #message-box.opacity-0 {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+
+    <div id="game-container">
+        <!-- Three.js Canvas will be appended here -->
+    </div>
+
+    <!-- UI Overlay -->
+    <div class="ui-overlay p-4 flex flex-col justify-between items-center">
+
+        <!-- Top Score Bar -->
+        <div class="w-full flex justify-between p-2">
+            <div id="score-display" class="text-2xl font-bold text-green-400 neon-glow">SCORE: 0</div>
+            <div id="highscore-display" class="text-xl font-bold text-gray-300">HIGH SCORE: 0</div>
+        </div>
+
+        <!-- Start/Game Over Message Box -->
+        <div id="message-box" class="flex flex-col items-center justify-center p-8 bg-gray-800/90 rounded-xl shadow-2xl backdrop-blur-sm transition-opacity duration-300">
+            <h1 id="message-title" class="text-3xl sm:text-5xl font-extrabold text-green-400 mb-4 neon-glow">3D LANE DODGER</h1>
+            <p id="final-score" class="text-md sm:text-xl text-white mb-1">Dodge red cubes and survive!</p>
+            <p id="high-score" class="text-sm sm:text-lg text-gray-300 mb-6">Use ← → or A/D to move.</p>
+            
+            <div id="restart-btn-container" class="hidden">
+                <button id="restart-btn" class="px-6 py-3 text-lg font-bold rounded-full bg-green-500 hover:bg-green-400 text-gray-900 transition duration-150 neon-glow pointer-events-auto">
+                    RESTART
+                </button>
+            </div>
+            
+            <button id="start-btn" class="px-8 py-4 text-xl font-extrabold rounded-full bg-green-500 hover:bg-green-400 text-gray-900 transition duration-150 neon-glow pointer-events-auto">
+                START GAME (Enter)
+            </button>
+        </div>
+
+        <!-- Bottom Controls (Mobile/Touch) -->
+        <div class="flex w-full justify-center p-4 space-x-4 sm:space-x-8">
+            <button id="left-btn" class="p-2 w-2/5 max-w-xs h-16 sm:h-20 bg-gray-700/80 hover:bg-green-600 rounded-xl neon-glow text-green-400 text-xl sm:text-4xl font-extrabold transition duration-150 pointer-events-auto">
+                &#8592; LEFT
+            </button>
+            <button id="right-btn" class="p-2 w-2/5 max-w-xs h-16 sm:h-20 bg-gray-700/80 hover:bg-green-600 rounded-xl neon-glow text-green-400 text-xl sm:text-4xl font-extrabold transition duration-150 pointer-events-auto">
+                RIGHT &#8594;
+            </button>
+        </div>
+    </div>
+
+    <!-- Screen Flash Overlay (New Feature) -->
+    <div id="flash-overlay" class="hidden"></div>
+
+</body>
+</html>
+

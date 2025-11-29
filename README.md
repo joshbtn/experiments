@@ -13,3 +13,4 @@ Single-page apps generated with Gemini AI:
 - `semantic.html` - Semantic web experiment
 - `card_7_track.html` - Card tracking application
 - `teapot.html` - Teapot application
+- `3d_lane_game.html` - 3D lane racing game
