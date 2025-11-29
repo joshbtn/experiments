@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A-Frame Orbiting Text Array</title>
+    <!-- Load Tailwind CSS for UI and structure -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load A-Frame VR Framework -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <style>
+        /* Reset and ensure full viewport coverage */
+        html, body {
+            margin: 0;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+        }
+        #scene-container {
+            width: 100%;
+            height: 100vh;
+            background-color: #1f2937;
+            position: relative; /* Needed for absolute positioning of UI */
+        }
+        /* Ensure A-Frame canvas fills the space */
+        .a-canvas {
+            z-index: 1; /* Keep A-Frame below the UI button */
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="scene-container">
+        
+        <!-- UI Overlay with Manual VR Button -->
+        <div class="absolute top-0 left-0 w-full p-4 flex justify-center items-center z-20">
+            
+            <button id="enter-vr-button" 
+                    class="w-full sm:w-auto px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 transition duration-300 transform hover:scale-105 active:scale-95">
+                TAP TO ENABLE SENSORS & ENTER VR
+            </button>
+
+        </div>
+
+        <!-- A-Frame Scene -->
+        <a-scene class="w-full h-full">
+
+            <a-entity id="text-container" 
+                      position="0 0 0"
+                      animation="property: rotation; to: 0 360 0; loop: true; dur: 20000; easing: linear">
+                <!-- Text elements will be dynamically injected here by JavaScript -->
+            </a-entity>
+
+            <!-- Camera (The Observer) Setup -->
+            <a-entity camera 
+                      wasd-controls 
+                      look-controls 
+                      position="0 1.6 0">
+                <!-- Cursor/Gaze Indicator -->
+                <a-cursor color="#3B82F6" 
+                          opacity="0.8" 
+                          scale="0.01 0.01 0.01">
+                </a-cursor>
+            </a-entity>
+
+            <!-- Simple environment for context -->
+            <a-sky color="#252F3F"></a-sky>
+            <a-plane position="0 0 -4" rotation="-90 0 0" width="10" height="10" color="#111827" shadow></a-plane>
+
+        </a-scene>
+        
+    </div>
+
+    <script>
+        // Use a function to dynamically generate the text array
+        function generateOrbitingText(containerId, count, radius, textPattern, heightY) {
+            const container = document.getElementById(containerId);
+            if (!container) {
+                console.error("Container entity not found:", containerId);
+                return;
+            }
+
+            const angleStep = (2 * Math.PI) / count;
+            const patternLength = textPattern.length;
+
+            for (let i = 0; i < count; i++) {
+                const angle = i * angleStep;
+                
+                const textValue = textPattern[i % patternLength];
+
+                const x = radius * Math.sin(angle);
+                const z = radius * Math.cos(angle);
+
+                const rotationY = -(angle * (180 / Math.PI)); 
+                
+                const textEntity = document.createElement('a-text');
+                
+                // Set text properties
+                textEntity.setAttribute('value', textValue);
+                textEntity.setAttribute('position', `${x} ${heightY} ${z}`);
+                textEntity.setAttribute('rotation', `0 ${rotationY} 0`);
+                textEntity.setAttribute('color', i % 2 === 0 ? '#34D399' : '#FBBF24');
+                textEntity.setAttribute('side', 'double');
+                
+                // <<< INCREASED FONT SIZE HERE >>>
+                textEntity.setAttribute('width', 4); 
+                textEntity.setAttribute('height', 4);
+                // <<< INCREASED FONT SIZE HERE >>>
+
+                textEntity.setAttribute('align', 'center');
+
+                container.appendChild(textEntity);
+            }
+        }
+
+        // --- Core Application Logic ---
+        const totalCharacters = 16;
+        const orbitRadius = 4; // meters
+        const eyeLevel = 1.6; // meters
+        const repeatingPattern = ["67", "41"];
+        
+        const scene = document.querySelector('a-scene');
+        const enterVRButton = document.getElementById('enter-vr-button');
+
+        // 1. Generate Content when the A-Frame scene is ready
+        scene.addEventListener('loaded', function () {
+            generateOrbitingText('text-container', totalCharacters, orbitRadius, repeatingPattern, eyeLevel);
+        });
+        
+        /**
+         * Attempts to request motion sensor permission (REQUIRED for iOS/Safari)
+         * and then enters VR mode.
+         */
+        function requestMotionPermissionAndEnterVR() {
+            // Check if the permission API exists (iOS 13+ requirement)
+            if (typeof DeviceOrientationEvent !== 'undefined' && 
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                
+                DeviceOrientationEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            console.log("Motion sensor permission granted. Entering VR mode.");
+                            scene.enterVR();
+                        } else {
+                            console.error("Motion sensor permission denied.");
+                            // If denied, we still try to enter VR, but head tracking won't work
+                            scene.enterVR(); 
+                        }
+                    })
+                    .catch(error => {
+                        console.error("Error requesting motion permission:", error);
+                        // Fallback: try to enter VR anyway
+                        scene.enterVR();
+                    });
+            } else {
+                // For non-iOS/older browsers, just try to enter VR mode directly.
+                console.log("Motion sensor permission not required or API not supported. Entering VR mode.");
+                scene.enterVR();
+            }
+            
+            // Hide the button once the process starts
+            enterVRButton.style.display = 'none'; 
+        }
+
+
+        // 2. Attach click handler to the custom button
+        enterVRButton.addEventListener('click', requestMotionPermissionAndEnterVR);
+        
+    </script>
+
+</body>
+</html>
+
