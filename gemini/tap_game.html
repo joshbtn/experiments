@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rhythm Tap Master</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        /* Custom CSS for Game Aesthetics */
+        body {
+            background-color: #121212;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px 10px;
+            font-family: 'Press Start 2P', cursive; /* Arcade font */
+            color: #fff;
+            user-select: none; /* Prevent selection on interaction */
+        }
+
+        #game-container {
+            width: 100%;
+            max-width: 500px; /* Maximize readability/playability */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border-radius: 12px;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+            overflow: hidden;
+            background-color: #1a1a1a;
+        }
+
+        h1 {
+            font-size: 1.2rem;
+            text-align: center;
+            margin-bottom: 10px;
+            color: #ffe500;
+            text-shadow: 0 0 5px #ff6600;
+        }
+
+        #score-display {
+            font-size: 1rem;
+            margin-bottom: 15px;
+            color: #00ff99;
+            text-shadow: 0 0 4px #00ff99;
+        }
+
+        canvas {
+            background-color: #000;
+            display: block;
+            touch-action: none; /* Prevent scroll on touch */
+            border-radius: 8px;
+            width: 100%;
+            height: 450px; /* Fixed height for better rhythm focus on mobile */
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8);
+        }
+
+        /* Input buttons for mobile tapping */
+        #input-buttons {
+            display: flex;
+            width: 100%;
+            max-width: 500px;
+            justify-content: space-between;
+            margin-top: 10px;
+        }
+
+        .tap-button {
+            flex-grow: 1;
+            height: 70px;
+            margin: 0 3px;
+            border: none;
+            color: #121212;
+            font-size: 0.8rem;
+            font-weight: bold;
+            text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.1s ease-out;
+            box-shadow: 0 4px #333;
+            transform: translateY(0);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 3px solid #fff;
+        }
+
+        .tap-button:active {
+            box-shadow: 0 1px #333;
+            transform: translateY(3px);
+        }
+
+        /* Color mapping for notes and buttons */
+        .color-0 { background-color: #ff3366; border-color: #ff99aa; } /* Red */
+        .color-1 { background-color: #00ccff; border-color: #99eeff; } /* Blue */
+        .color-2 { background-color: #ccff33; border-color: #eeff99; } /* Green */
+        .color-3 { background-color: #ff9900; border-color: #ffcc99; } /* Orange */
+
+        .color-0:active { background-color: #e60039; }
+        .color-1:active { background-color: #0099cc; }
+        .color-2:active { background-color: #aacc00; }
+        .color-3:active { background-color: #cc7a00; }
+
+        .active-hit {
+            opacity: 0.8;
+            border: 5px solid #fff;
+            box-shadow: 0 0 15px #fff;
+        }
+
+        /* Game Over Modal */
+        #game-over-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        #game-over-content {
+            background-color: #1a1a1a;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            border: 5px solid #ff0055;
+            box-shadow: 0 0 30px #ff0055;
+        }
+
+        #final-score {
+            font-size: 1.5rem;
+            margin: 15px 0;
+            color: #ffe500;
+        }
+
+        #restart-button {
+            background-color: #00ff99;
+            color: #121212;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-family: 'Press Start 2P', cursive;
+            margin-top: 20px;
+            box-shadow: 0 3px #009966;
+            transition: background-color 0.2s;
+        }
+
+        #restart-button:active {
+            box-shadow: none;
+            transform: translateY(3px);
+            background-color: #00cc80;
+        }
+
+    </style>
+</head>
+<body>
+
+    <h1>Rhythm Tap Master</h1>
+    <div id="score-display">Score: 0 | Combo: 0</div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <!-- Input buttons for mobile users - map to lanes 0, 1, 2, 3 -->
+    <div id="input-buttons">
+        <button class="tap-button color-0" data-lane="0">A</button>
+        <button class="tap-button color-1" data-lane="1">S</button>
+        <button class="tap-button color-2" data-lane="2">D</button>
+        <button class="tap-button color-3" data-lane="3">F</button>
+    </div>
+
+    <!-- Game Over Modal -->
+    <div id="game-over-modal">
+        <div id="game-over-content">
+            <h2>GAME OVER</h2>
+            <p>You missed too many notes!</p>
+            <div id="final-score">Final Score: 0</div>
+            <button id="restart-button">RESTART</button>
+        </div>
+    </div>
+
+    <script>
+        // Game Constants
+        const NUM_LANES = 4;
+        const NOTE_RADIUS = 20;
+        const NOTE_SPEED = 3.5; // Pixels per frame
+        const NOTE_COLORS = ['#ff3366', '#00ccff', '#ccff33', '#ff9900']; // Red, Blue, Green, Orange
+        const SPAWN_RATE = 60; // Spawn a note roughly every X frames (higher is slower)
+        const HIT_ZONE_Y = 400; // Y coordinate of the center of the target zone
+        const PERFECT_TOLERANCE = 15; // Pixel tolerance for a perfect hit
+        const GOOD_TOLERANCE = 30; // Pixel tolerance for a good hit
+        const MISS_THRESHOLD = 45; // Notes below this Y are missed
+
+        // Global State
+        let canvas, ctx;
+        let score = 0;
+        let combo = 0;
+        let lives = 5;
+        let notes = [];
+        let frameCount = 0;
+        let isGameRunning = false;
+        let animationFrameId;
+
+        // Utility to get current game dimensions
+        let laneWidth, laneCenterOffsets = [];
+
+        // Game Elements
+        const scoreDisplay = document.getElementById('score-display');
+        const gameOverModal = document.getElementById('game-over-modal');
+        const finalScoreDisplay = document.getElementById('final-score');
+        const inputButtons = document.querySelectorAll('.tap-button');
+
+        // Note Class
+        class Note {
+            constructor(lane) {
+                this.lane = lane;
+                this.x = laneCenterOffsets[lane];
+                this.y = -NOTE_RADIUS; // Start above the screen
+                this.color = NOTE_COLORS[lane];
+                this.active = true;
+            }
+
+            update() {
+                this.y += NOTE_SPEED;
+            }
+
+            draw() {
+                if (!this.active) return;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, NOTE_RADIUS, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+        }
+
+        // --- Game Setup and Initialization ---
+
+        function setupCanvas() {
+            canvas = document.getElementById('gameCanvas');
+            ctx = canvas.getContext('2d');
+
+            // Dynamically set canvas size for responsiveness
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+        }
+
+        function calculateDimensions() {
+            if (!canvas) return;
+
+            // Recalculate lane dimensions
+            laneWidth = canvas.width / NUM_LANES;
+            laneCenterOffsets = [];
+            for (let i = 0; i < NUM_LANES; i++) {
+                laneCenterOffsets.push(i * laneWidth + laneWidth / 2);
+            }
+        }
+
+        function resetGame() {
+            score = 0;
+            combo = 0;
+            lives = 5;
+            notes = [];
+            frameCount = 0;
+            isGameRunning = true;
+            gameOverModal.style.display = 'none';
+
+            // Stop any previous game loop
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+            gameLoop();
+        }
+
+        // --- Drawing Functions ---
+
+        function drawLanes() {
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 2;
+            for (let i = 1; i < NUM_LANES; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * laneWidth, 0);
+                ctx.lineTo(i * laneWidth, canvas.height);
+                ctx.stroke();
+            }
+        }
+
+        function drawTargetZone() {
+            const ZONE_HEIGHT = GOOD_TOLERANCE * 2;
+            const ZONE_TOP = HIT_ZONE_Y - GOOD_TOLERANCE;
+
+            // Draw faint background target area
+            ctx.fillStyle = 'rgba(0, 255, 255, 0.1)';
+            ctx.fillRect(0, ZONE_TOP, canvas.width, ZONE_HEIGHT);
+
+            // Draw the target line (Perfect Hit line)
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 4;
+            ctx.setLineDash([10, 5]); // Dashed line
+            ctx.beginPath();
+            ctx.moveTo(0, HIT_ZONE_Y);
+            ctx.lineTo(canvas.width, HIT_ZONE_Y);
+            ctx.stroke();
+            ctx.setLineDash([]); // Reset line dash
+
+            // Draw outlines of the tap targets
+            ctx.lineWidth = 5;
+            for (let i = 0; i < NUM_LANES; i++) {
+                ctx.strokeStyle = NOTE_COLORS[i];
+                ctx.beginPath();
+                ctx.arc(laneCenterOffsets[i], HIT_ZONE_Y, GOOD_TOLERANCE + 5, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+
+        function drawScore() {
+            scoreDisplay.innerHTML = `Score: ${score} | Combo: ${combo} | Lives: ${lives}`;
+
+            if (combo >= 5) {
+                ctx.fillStyle = combo % 10 === 0 ? '#ff00ff' : '#00ffff';
+                ctx.font = '20px "Press Start 2P"';
+                ctx.textAlign = 'center';
+                ctx.shadowColor = '#000';
+                ctx.shadowBlur = 5;
+                ctx.fillText(`x${combo}`, canvas.width / 2, canvas.height / 3);
+                ctx.shadowBlur = 0;
+            }
+        }
+
+        function drawFeedback(text, color) {
+            ctx.fillStyle = color;
+            ctx.font = '24px "Press Start 2P"';
+            ctx.textAlign = 'center';
+            ctx.shadowColor = '#000';
+            ctx.shadowBlur = 5;
+            ctx.fillText(text, canvas.width / 2, HIT_ZONE_Y - 50);
+            ctx.shadowBlur = 0;
+        }
+
+        function flashHitTarget(laneIndex) {
+            // Visually flash the corresponding target area on the canvas
+            ctx.fillStyle = NOTE_COLORS[laneIndex];
+            ctx.globalAlpha = 0.5;
+            ctx.beginPath();
+            ctx.arc(laneCenterOffsets[laneIndex], HIT_ZONE_Y, GOOD_TOLERANCE + 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+        }
+
+        // --- Game Logic ---
+
+        let feedback = { text: '', color: '', duration: 0 };
+
+        function checkHit(lane) {
+            let hitNote = null;
+            let hitIndex = -1;
+
+            // Find the note closest to the hit zone in the given lane
+            for (let i = 0; i < notes.length; i++) {
+                if (notes[i].lane === lane && notes[i].active) {
+                    const distance = Math.abs(notes[i].y - HIT_ZONE_Y);
+
+                    if (distance <= GOOD_TOLERANCE) {
+                        hitNote = notes[i];
+                        hitIndex = i;
+                        break; // Found the best candidate
+                    }
+                }
+            }
+
+            if (hitNote) {
+                const distance = Math.abs(hitNote.y - HIT_ZONE_Y);
+                let points = 0;
+                let feedbackText = '';
+                let feedbackColor = '';
+
+                if (distance <= PERFECT_TOLERANCE) {
+                    points = 100;
+                    feedbackText = 'PERFECT!';
+                    feedbackColor = '#ffe500';
+                    combo++;
+                } else {
+                    points = 50;
+                    feedbackText = 'GOOD';
+                    feedbackColor = '#00ff99';
+                    combo++;
+                }
+
+                score += points * combo;
+                hitNote.active = false; // Deactivate note
+                notes.splice(hitIndex, 1); // Remove from array
+                feedback = { text: feedbackText, color: feedbackColor, duration: 30 };
+            } else {
+                // Missed tap (no note in zone)
+                combo = 0;
+                feedback = { text: 'MISS!', color: '#ff0055', duration: 30 };
+                // Don't reduce lives for tapping nothing.
+            }
+        }
+
+        function updateGame() {
+            if (!isGameRunning) return;
+
+            // 1. Note Spawning (random lane selection)
+            if (frameCount % SPAWN_RATE === 0) {
+                const lane = Math.floor(Math.random() * NUM_LANES);
+                notes.push(new Note(lane));
+            }
+
+            // 2. Update and Check Notes
+            for (let i = notes.length - 1; i >= 0; i--) {
+                const note = notes[i];
+                note.update();
+
+                // Check for missed notes
+                if (note.y > HIT_ZONE_Y + MISS_THRESHOLD) {
+                    if (note.active) {
+                        note.active = false;
+                        notes.splice(i, 1); // Remove missed note
+                        combo = 0;
+                        lives--;
+                        feedback = { text: 'MISSED NOTE!', color: '#ff0055', duration: 30 };
+
+                        if (lives <= 0) {
+                            endGame();
+                        }
+                    }
+                }
+            }
+
+            // 3. Update Feedback Timer
+            if (feedback.duration > 0) {
+                feedback.duration--;
+            }
+
+            frameCount++;
+        }
+
+        function endGame() {
+            isGameRunning = false;
+            cancelAnimationFrame(animationFrameId);
+            finalScoreDisplay.textContent = `Final Score: ${score}`;
+            gameOverModal.style.display = 'flex';
+        }
+
+        // --- Main Game Loop ---
+
+        function gameLoop() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            updateGame();
+
+            // Draw Elements (in order)
+            drawLanes();
+            notes.forEach(note => note.draw());
+            drawTargetZone();
+            drawScore();
+
+            // Draw temporary feedback
+            if (feedback.duration > 0) {
+                drawFeedback(feedback.text, feedback.color);
+            }
+
+            // Request next frame
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+
+        // --- Event Listeners and Input Handling ---
+
+        function handleLaneTap(laneIndex) {
+            if (!isGameRunning) return;
+            checkHit(laneIndex);
+
+            // Flash the button visually (optional, using JS classes)
+            const button = inputButtons[laneIndex];
+            button.classList.add('active-hit');
+            setTimeout(() => {
+                button.classList.remove('active-hit');
+            }, 100);
+
+            // Brief visual flash on the canvas hit area
+            flashHitTarget(laneIndex);
+        }
+
+        // Keyboard Input (Desktop)
+        document.addEventListener('keydown', (e) => {
+            if (e.repeat) return;
+            let laneIndex = -1;
+            switch (e.key.toUpperCase()) {
+                case 'A': laneIndex = 0; break;
+                case 'S': laneIndex = 1; break;
+                case 'D': laneIndex = 2; break;
+                case 'F': laneIndex = 3; break;
+            }
+            if (laneIndex !== -1) {
+                handleLaneTap(laneIndex);
+            }
+        });
+
+        // Touch/Click Input (Mobile Buttons)
+        inputButtons.forEach(button => {
+            button.addEventListener('pointerdown', (e) => {
+                // Prevent default touch/click behavior to ensure smooth interaction
+                e.preventDefault();
+                const laneIndex = parseInt(button.dataset.lane, 10);
+                handleLaneTap(laneIndex);
+            });
+        });
+
+        // Restart Button
+        document.getElementById('restart-button').addEventListener('click', resetGame);
+
+        // Resize handler
+        window.addEventListener('resize', () => {
+            setupCanvas();
+            calculateDimensions();
+        });
+
+        // Initial setup on load
+        window.onload = function() {
+            setupCanvas();
+            calculateDimensions();
+            resetGame(); // Start the game immediately on load
+        };
+    </script>
+</body>
+</html>
+
