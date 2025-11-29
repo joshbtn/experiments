@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGPU Teapot Scene</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls for camera interaction -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- TeapotGeometry (Requires WebGPU for better rendering, but we use standard Three.js here) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TeapotGeometry.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000000; }
+        #container { width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        canvas { display: block; }
+        .info-box {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div class="info-box">
+        Teapot with 6 Spotlights. Drag to orbit the camera.
+    </div>
+
+    <script>
+        let scene, camera, renderer, controls, teapot, plane;
+        const container = document.getElementById('container');
+
+        // --- Configuration ---
+        const TEAPOT_COLOR = 0x808080; // Neutral grey
+        const SURFACE_COLOR = 0xf0f0e0; // Off-white
+        const BACKGROUND_COLOR = 0x000000; // Black
+
+        // Colors for the 6 spotlights (vivid and distinct)
+        const SPOTLIGHT_COLORS = [
+            0xff0000, // Red
+            0x00ff00, // Green
+            0x0000ff, // Blue
+            0xffff00, // Yellow
+            0xff00ff, // Magenta
+            0x00ffff, // Cyan
+        ];
+
+        // Position multipliers for the 6 spotlights
+        const SPOTLIGHT_POSITIONS = [
+            { x: 5, y: 5, z: 0 },
+            { x: -5, y: 5, z: 0 },
+            { x: 0, y: 5, z: 5 },
+            { x: 0, y: 5, z: -5 },
+            { x: 4, y: 2, z: 4 },
+            { x: -4, y: 2, z: -4 },
+        ];
+
+
+        function init() {
+            // 1. Scene Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(BACKGROUND_COLOR);
+
+            // 2. Camera Setup
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 3, 7);
+
+            // 3. Renderer Setup
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+            container.appendChild(renderer.domElement);
+
+            // 4. Teapot (The main object)
+            // Three.js TeapotGeometry requires the dedicated loader script
+            const teapotGeometry = new THREE.TeapotGeometry(1.5, 15);
+            const teapotMaterial = new THREE.MeshPhysicalMaterial({
+                color: TEAPOT_COLOR,
+                metalness: 0.3,
+                roughness: 0.5,
+                reflectivity: 0.8,
+                clearcoat: 0.5,
+                clearcoatRoughness: 0.1
+            });
+            teapot = new THREE.Mesh(teapotGeometry, teapotMaterial);
+            teapot.position.y = 1.5; // Lift it onto the plane
+            teapot.rotation.y = Math.PI / 4;
+            teapot.castShadow = true;
+            scene.add(teapot);
+
+            // 5. Surface (The plane)
+            const planeGeometry = new THREE.PlaneGeometry(20, 20);
+            const planeMaterial = new THREE.MeshStandardMaterial({
+                color: SURFACE_COLOR,
+                metalness: 0.1,
+                roughness: 0.3,
+            });
+            plane = new THREE.Mesh(planeGeometry, planeMaterial);
+            plane.rotation.x = -Math.PI / 2; // Rotate to lie flat
+            plane.receiveShadow = true;
+            scene.add(plane);
+
+
+            // 6. Lighting (6 Spotlights + Ambient)
+
+            // Ambient light to ensure everything is visible
+            const ambientLight = new THREE.AmbientLight(0x404040, 1.5); // Soft white light
+            scene.add(ambientLight);
+
+            // Target for the spotlights (the center of the teapot)
+            const lightTarget = new THREE.Object3D();
+            lightTarget.position.copy(teapot.position);
+            scene.add(lightTarget);
+
+            // Create and position the 6 spotlights
+            SPOTLIGHT_COLORS.forEach((color, index) => {
+                const pos = SPOTLIGHT_POSITIONS[index];
+                const light = new THREE.SpotLight(color, 3.5, 12, Math.PI * 0.15, 0.5, 1.0);
+                light.position.set(pos.x, pos.y, pos.z);
+                
+                // Shadows setup
+                light.castShadow = true;
+                light.shadow.mapSize.width = 1024;
+                light.shadow.mapSize.height = 1024;
+                light.shadow.camera.near = 0.5;
+                light.shadow.camera.far = 15;
+                
+                light.target = lightTarget;
+                scene.add(light);
+
+                // Helper to see the light's direction and cone (optional)
+                // const helper = new THREE.SpotLightHelper(light, color);
+                // scene.add(helper);
+            });
+
+            // 7. Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // for smooth movements
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 5;
+            controls.maxDistance = 15;
+            controls.maxPolarAngle = Math.PI / 2 - 0.1; // Prevent going below the ground
+
+            // 8. Event Listeners
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update(); // only required if controls.enableDamping or controls.autoRotate are set to true
+
+            // Simple rotation for a dynamic look
+            teapot.rotation.y += 0.005; 
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function() {
+            if (THREE.TeapotGeometry) {
+                init();
+                animate();
+            } else {
+                console.error("TeapotGeometry not loaded. Check script tag.");
+            }
+        };
+
+    </script>
+</body>
+</html>
+
