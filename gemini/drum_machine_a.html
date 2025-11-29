@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NanoDrum 16 - Synth Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Nova+Square&display=swap');
+        
+        :root {
+            --primary: #1e3a8a; /* Blue-900 */
+            --accent: #fcd34d; /* Amber-300 */
+            --background: #0f172a; /* Slate-900 */
+            --text: #e2e8f0; /* Slate-200 */
+            --secondary: #3b82f6; /* Blue-500 */
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--background);
+            color: var(--text);
+            padding: 1rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Custom Styles for Pads and Sequencer */
+        .pad-button {
+            transition: all 0.1s;
+            box-shadow: 0 4px var(--primary);
+            user-select: none;
+            cursor: pointer;
+            font-family: 'Nova Square', cursive;
+        }
+        .pad-button:active {
+            box-shadow: 0 0 var(--primary);
+            transform: translateY(4px);
+        }
+        
+        .sequencer-step {
+            transition: background-color 0.1s;
+        }
+
+        /* Pad states */
+        .pad-empty { background-color: #475569; } /* Slate-600 */
+        .pad-filled { background-color: #22c55e; } /* Emerald-500 */
+        .pad-active-play { animation: pad-pulse 0.1s ease-out; }
+
+        @keyframes pad-pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); box-shadow: 0 0 20px 5px var(--accent); }
+            100% { transform: scale(1); }
+        }
+
+        /* Utility for mobile responsiveness */
+        .grid-16 {
+            grid-template-columns: repeat(16, minmax(0, 1fr));
+        }
+
+        /* Visually hide warnings/modals initially */
+        #warning-modal, #volume-modal { display: none; }
+
+        /* Range Input Styling */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--accent);
+            border: 2px solid var(--primary);
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        input[type=range]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: var(--accent);
+            border: 2px solid var(--primary);
+            cursor: pointer;
+            border-radius: 50%;
+        }
+    </style>
+    <script>
+        // --- Global Audio Setup ---
+        let audioContext;
+        let drumPads = new Array(16).fill(null);
+        let padVolumes = new Array(16).fill(1.0); // New: Mixer volume for each pad (0.0 to 1.0)
+        let saveMode = false;
+        let isPlaying = false;
+        let currentStep = 0;
+        let sequenceInterval;
+        let lookahead = 25.0; // How far ahead to schedule audio (ms)
+        let scheduleAheadTime = 0.1; // How far ahead to schedule audio (s)
+        let nextNoteTime = 0.0; // when the next note is due
+        
+        let sequencerGrid = Array(16).fill('0000000000000000'); 
+        let currentBPM = 120;
+        
+        const SAMPLE_RATE = 44100;
+        const MAX_DURATION = 1.0; 
+        const MAX_BUFFER_LENGTH = SAMPLE_RATE * MAX_DURATION;
+        
+        const notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+        const baseA = 440; 
+        const octaveOffset = 4; 
+
+        // Configuration for the sound generation
+        const soundConfig = {
+            wave: 'sine',
+            distortion: 0.0,
+            noteIndex: 0,
+            octave: 4,
+            attack: 0.005,
+            decay: 0.2,
+            cutoffFreq: 8000,
+            resonance: 0.0,
+        };
+
+        const configPresets = {
+            'sine': { color: 'bg-yellow-500', name: 'Sine' },
+            'sawtooth': { color: 'bg-pink-500', name: 'Sawtooth' },
+            'square': { color: 'bg-red-500', name: 'Square' },
+            'noise': { color: 'bg-purple-500', name: 'Noise' }
+        };
+
+        const waveSelectOptions = ['sine', 'square', 'sawtooth', 'noise'];
+
+        // --- Utility Functions ---
+
+        function getFrequency(noteIdx, octave) {
+            const semitonesFromA4 = (octave - octaveOffset) * 12 + (noteIdx - 9);
+            return baseA * Math.pow(2, semitonesFromA4 / 12);
+        }
+
+        function makeDistortionCurve(amount) {
+            const k = typeof amount === 'number' ? amount : 50;
+            const n_samples = 44100;
+            const curve = new Float32Array(n_samples);
+            const deg = Math.PI / 180;
+            for (let i = 0; i < n_samples; i++) {
+                const x = i * 2 / n_samples - 1;
+                curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+            }
+            return curve;
+        }
+
+        function createAudioBuffer(pcmData, length) {
+            const buffer = audioContext.createBuffer(1, length, SAMPLE_RATE);
+            const channel = buffer.getChannelData(0);
+            for (let i = 0; i < length; i++) {
+                channel[i] = pcmData[i];
+            }
+            return buffer;
+        }
+
+        function drawCurve() {
+            const canvas = document.getElementById('shaper-display');
+            const ctx = canvas.getContext('2d');
+            const curve = makeDistortionCurve(soundConfig.distortion * 100);
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'var(--background)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.strokeStyle = '#334155';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, canvas.height / 2);
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+
+            ctx.strokeStyle = 'var(--accent)';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            
+            const inputRange = curve.length;
+
+            for (let i = 0; i < inputRange; i++) {
+                const x = (i / inputRange) * canvas.width;
+                const y = ((-curve[i] * 0.5) + 0.5) * canvas.height; 
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            ctx.stroke();
+        }
+
+        // --- Audio Generation Logic (The Core) ---
+
+        function generateSoundData(config) {
+            const frequency = getFrequency(config.noteIndex, config.octave);
+            
+            const totalTime = config.attack + config.decay;
+            const bufferLength = Math.min(MAX_BUFFER_LENGTH, Math.floor(totalTime * SAMPLE_RATE));
+            if (bufferLength === 0) { return createAudioBuffer(new Float32Array(1), 1); }
+
+            const pcmData = new Float32Array(bufferLength);
+            
+            // 1. Generate Raw Wave Data
+            for (let i = 0; i < bufferLength; i++) {
+                const time = i / SAMPLE_RATE;
+                const phase = 2 * Math.PI * frequency * time;
+                let value = 0;
+
+                if (config.wave === 'noise') {
+                    value = Math.random() * 2 - 1;
+                } else {
+                    switch (config.wave) {
+                        case 'sine': value = Math.sin(phase); break;
+                        case 'square': value = Math.sign(Math.sin(phase)); break;
+                        case 'sawtooth': value = (phase % (2 * Math.PI)) / Math.PI - 1; break;
+                        default: value = 0;
+                    }
+                }
+                pcmData[i] = value;
+            }
+
+            // 2. Apply AD Envelope (Offline Gain)
+            const attackSamples = Math.floor(config.attack * SAMPLE_RATE);
+            const decaySamples = Math.floor(config.decay * SAMPLE_RATE);
+
+            for (let i = 0; i < bufferLength; i++) {
+                let gain = 1.0;
+                
+                if (i < attackSamples) {
+                    gain = i / attackSamples;
+                } else if (i < attackSamples + decaySamples) {
+                    const decayProgress = (i - attackSamples) / decaySamples;
+                    gain = 1.0 - decayProgress;
+                } else {
+                    gain = 0.0;
+                }
+                
+                pcmData[i] *= gain;
+            }
+
+
+            // 3. Apply Wave Shaping (Distortion)
+            const shaperCurve = makeDistortionCurve(config.distortion * 100);
+            const midpoint = (shaperCurve.length - 1) / 2;
+            const distortedPcm = new Float32Array(bufferLength);
+            
+            for (let i = 0; i < bufferLength; i++) {
+                let index = Math.floor((pcmData[i] + 1) * midpoint);
+                index = Math.max(0, Math.min(shaperCurve.length - 1, index));
+                distortedPcm[i] = shaperCurve[index];
+            }
+            
+            // 4. Apply Filter (Offline Low-Pass Filter Simulation)
+            let previousSample = 0;
+            const outputPcm = new Float32Array(bufferLength);
+
+            const normalizedCutoff = config.cutoffFreq / (SAMPLE_RATE / 2);
+            const alpha = Math.max(0.001, Math.min(0.999, normalizedCutoff)); 
+
+            const resonantBoost = 1.0 + (config.resonance * 2.0); 
+
+            for (let i = 0; i < bufferLength; i++) {
+                const input = distortedPcm[i] * resonantBoost;
+                
+                outputPcm[i] = (input * alpha) + (previousSample * (1.0 - alpha));
+                previousSample = outputPcm[i];
+
+                if (outputPcm[i] > 1.0) outputPcm[i] = 1.0;
+                if (outputPcm[i] < -1.0) outputPcm[i] = -1.0;
+            }
+
+            return createAudioBuffer(outputPcm, bufferLength);
+        }
+
+        // 3. Play the generated or saved sound
+        function playSound(buffer, volume = 1.0, time = 0) {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+            }
+            if (!buffer) {
+                console.warn('Attempted to play empty buffer.');
+                showWarning('Pad Empty', 'This pad does not have a sound saved yet. Create a sound in the shaper first!', 2000);
+                return;
+            }
+
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+
+            // Use GainNode for mixer volume control
+            const gainNode = audioContext.createGain();
+            // Ramp the gain in case the volume is changed while playing
+            gainNode.gain.setValueAtTime(volume, audioContext.currentTime + time);
+
+            source.connect(gainNode).connect(audioContext.destination);
+            source.start(audioContext.currentTime + time);
+        }
+
+        // --- UI Update & Event Handlers ---
+
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+            }
+            drawCurve();
+            updatePadDisplay();
+            updateSynthControlsDisplay();
+        }
+
+        document.addEventListener('DOMContentLoaded', initAudio);
+
+        function updateSynthControlsDisplay() {
+            document.getElementById('note-select').value = soundConfig.noteIndex;
+            document.getElementById('octave-select').value = soundConfig.octave;
+            
+            const freq = getFrequency(soundConfig.noteIndex, soundConfig.octave);
+            document.getElementById('current-note-freq').textContent = `${notes[soundConfig.noteIndex]}${soundConfig.octave} (${freq.toFixed(1)} Hz)`;
+            
+            document.getElementById('attack-slider').value = soundConfig.attack;
+            document.getElementById('attack-value').textContent = (soundConfig.attack * 1000).toFixed(0);
+            document.getElementById('decay-slider').value = soundConfig.decay;
+            document.getElementById('decay-value').textContent = (soundConfig.decay * 1000).toFixed(0);
+
+            document.getElementById('cutoff-slider').value = soundConfig.cutoffFreq;
+            document.getElementById('cutoff-value').textContent = soundConfig.cutoffFreq.toFixed(0);
+            document.getElementById('resonance-slider').value = soundConfig.resonance;
+            document.getElementById('resonance-value').textContent = (soundConfig.resonance * 100).toFixed(0);
+
+            document.getElementById('distortion-slider').value = soundConfig.distortion;
+            document.getElementById('distortion-value').textContent = (soundConfig.distortion * 100).toFixed(0);
+        }
+
+        function handleNoteChange(event) {
+            soundConfig.noteIndex = parseInt(event.target.value);
+            updateSynthControlsDisplay();
+        }
+
+        function handleOctaveChange(event) {
+            soundConfig.octave = parseInt(event.target.value);
+            updateSynthControlsDisplay();
+        }
+
+        function handleEnvelopeChange(param, event) {
+            soundConfig[param] = parseFloat(event.target.value);
+            updateSynthControlsDisplay();
+        }
+
+        function handleFilterChange(param, event) {
+            soundConfig[param] = parseFloat(event.target.value);
+            updateSynthControlsDisplay();
+        }
+
+
+        function handleWaveSelect(waveType) {
+            soundConfig.wave = waveType;
+            waveSelectOptions.forEach(w => {
+                const btn = document.getElementById(`wave-${w}`);
+                if (w === waveType) {
+                    btn.classList.remove('bg-gray-700', 'text-gray-300');
+                    btn.classList.add(configPresets[w].color, 'text-black');
+                } else {
+                    btn.classList.add('bg-gray-700', 'text-gray-300');
+                    btn.classList.remove(configPresets[w].color, 'text-black');
+                }
+            });
+            document.getElementById('current-wave-text').textContent = configPresets[waveType].name;
+            document.getElementById('current-wave-text').className = `text-lg font-bold ${configPresets[waveType].color.replace('bg-', 'text-')}`;
+        }
+        handleWaveSelect(soundConfig.wave);
+
+
+        function handleDistortionChange(event) {
+            soundConfig.distortion = parseFloat(event.target.value);
+            drawCurve();
+            updateSynthControlsDisplay();
+        }
+
+
+        function handlePreviewSound() {
+            const buffer = generateSoundData(soundConfig);
+            playSound(buffer, 1.0); // Use full volume for preview
+        }
+
+
+        function toggleSaveMode() {
+            saveMode = !saveMode;
+            const btn = document.getElementById('save-mode-button');
+            if (saveMode) {
+                btn.classList.remove('bg-gray-500', 'hover:bg-gray-600');
+                btn.classList.add('bg-accent', 'text-black', 'shadow-red-500/50', 'shadow-lg');
+                btn.textContent = 'DISABLE Pad Save Mode';
+                showWarning('SAVE MODE', 'Click any drum pad to save the current sound!', 1500);
+            } else {
+                btn.classList.add('bg-gray-500', 'hover:bg-gray-600');
+                btn.classList.remove('bg-accent', 'text-black', 'shadow-red-500/50', 'shadow-lg');
+                btn.textContent = 'ENABLE Pad Save Mode';
+            }
+        }
+
+
+        function handlePadClick(padIndex) {
+            const padVolume = padVolumes[padIndex - 1]; // Get mixer volume for this pad
+            
+            if (saveMode) {
+                const newBuffer = generateSoundData(soundConfig);
+                drumPads[padIndex - 1] = newBuffer;
+                toggleSaveMode();
+                updatePadDisplay();
+                showWarning('SAVED!', `Sound saved to Pad ${padIndex}.`, 1000);
+            } else {
+                const padElement = document.getElementById(`pad-${padIndex}`);
+                const buffer = drumPads[padIndex - 1];
+                
+                padElement.classList.add('pad-active-play');
+                setTimeout(() => {
+                    padElement.classList.remove('pad-active-play');
+                }, 100);
+
+                playSound(buffer, padVolume); // Use stored mixer volume
+            }
+        }
+        
+        function updatePadDisplay() {
+            for (let i = 1; i <= 16; i++) {
+                const padElement = document.getElementById(`pad-${i}`);
+                if (drumPads[i - 1]) {
+                    padElement.classList.remove('pad-empty');
+                    padElement.classList.add('pad-filled');
+                    padElement.title = `Pad ${i} - Filled`;
+                } else {
+                    padElement.classList.add('pad-empty');
+                    padElement.classList.remove('pad-filled');
+                    padElement.title = `Pad ${i} - Empty`;
+                }
+            }
+        }
+
+        // --- Mixer Volume Control Logic ---
+
+        let currentVolumePadIndex = null;
+
+        function showVolumeControl(padIndex) {
+            currentVolumePadIndex = padIndex;
+            const modal = document.getElementById('volume-modal');
+            
+            // Set modal content
+            document.getElementById('volume-modal-title').textContent = `Volume for Pad ${padIndex}`;
+            
+            const slider = document.getElementById('volume-slider');
+            slider.value = padVolumes[padIndex - 1];
+            document.getElementById('volume-value-display').textContent = (padVolumes[padIndex - 1] * 100).toFixed(0);
+            
+            modal.style.display = 'flex';
+        }
+
+        function handleVolumeSliderChange(event) {
+            const newVolume = parseFloat(event.target.value);
+            padVolumes[currentVolumePadIndex - 1] = newVolume;
+            document.getElementById('volume-value-display').textContent = (newVolume * 100).toFixed(0);
+        }
+
+        function closeVolumeControl() {
+            document.getElementById('volume-modal').style.display = 'none';
+            currentVolumePadIndex = null;
+        }
+
+
+        // --- Sequencer Logic ---
+
+        function handleBPMChange(event) {
+            currentBPM = parseFloat(event.target.value);
+            document.getElementById('bpm-value').textContent = currentBPM;
+            if (isPlaying) {
+                stopSequence();
+                startSequence();
+            }
+        }
+
+        function toggleSequencerStep(padIndex, stepIndex) {
+            const currentString = sequencerGrid[padIndex - 1];
+            const charToChange = currentString[stepIndex - 1];
+            const newChar = charToChange === '1' ? '0' : '1';
+
+            sequencerGrid[padIndex - 1] = 
+                currentString.substring(0, stepIndex - 1) + 
+                newChar + 
+                currentString.substring(stepIndex);
+            
+            const stepElement = document.getElementById(`step-${padIndex}-${stepIndex}`);
+            if (newChar === '1') {
+                stepElement.classList.remove('bg-gray-700');
+                stepElement.classList.add('bg-secondary');
+            } else {
+                stepElement.classList.add('bg-gray-700');
+                stepElement.classList.remove('bg-secondary');
+            }
+        }
+        
+        function scheduleNote() {
+            const secondsPerBeat = 60.0 / currentBPM;
+            const secondsPer16th = secondsPerBeat / 4.0; 
+
+            while (nextNoteTime < audioContext.currentTime + scheduleAheadTime) {
+                for (let padIndex = 1; padIndex <= 16; padIndex++) {
+                    const stepActive = sequencerGrid[padIndex - 1][currentStep] === '1';
+                    const buffer = drumPads[padIndex - 1];
+                    const volume = padVolumes[padIndex - 1]; // Get mixer volume
+
+                    if (stepActive && buffer) {
+                        playSound(buffer, volume, nextNoteTime - audioContext.currentTime);
+                    }
+                }
+                
+                visualStepUpdate(currentStep + 1);
+
+                nextNoteTime += secondsPer16th;
+                currentStep = (currentStep + 1) % 16;
+            }
+        }
+        
+        function visualStepUpdate(stepIndex) {
+            document.querySelectorAll('.step-col').forEach(col => {
+                col.classList.remove('bg-blue-800', 'bg-opacity-50');
+            });
+
+            document.querySelectorAll(`.step-col[data-step="${stepIndex}"]`).forEach(col => {
+                col.classList.add('bg-blue-800', 'bg-opacity-50');
+            });
+        }
+        
+
+        function startSequence() {
+            if (!audioContext) initAudio();
+            if (isPlaying) return;
+
+            const btn = document.getElementById('sequence-button');
+            btn.classList.remove('bg-green-600', 'hover:bg-green-700');
+            btn.classList.add('bg-red-600', 'hover:bg-red-700');
+            btn.textContent = 'STOP Sequence';
+            
+            isPlaying = true;
+            currentStep = 0;
+            nextNoteTime = audioContext.currentTime;
+            sequenceInterval = setInterval(scheduleNote, lookahead);
+        }
+
+        function stopSequence() {
+            if (!isPlaying) return;
+
+            clearInterval(sequenceInterval);
+            isPlaying = false;
+            
+            const btn = document.getElementById('sequence-button');
+            btn.classList.add('bg-green-600', 'hover:bg-green-700');
+            btn.classList.remove('bg-red-600', 'hover:bg-red-700');
+            btn.textContent = 'START Sequence';
+
+            document.querySelectorAll('.step-col').forEach(col => {
+                col.classList.remove('bg-blue-800', 'bg-opacity-50');
+            });
+        }
+
+        function toggleSequence() {
+            if (isPlaying) {
+                stopSequence();
+            } else {
+                startSequence();
+            }
+        }
+
+        // --- Modal/Warning Logic ---
+        function showWarning(title, message, duration) {
+            const modal = document.getElementById('warning-modal');
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            modal.style.display = 'flex';
+            
+            setTimeout(() => {
+                modal.style.display = 'none';
+            }, duration);
+        }
+
+    </script>
+</head>
+<body>
+
+    <!-- Warning Modal (for SAVED/EMPTY messages) -->
+    <div id="warning-modal" class="fixed inset-0 z-50 bg-black bg-opacity-70 flex items-center justify-center">
+        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl border-2 border-accent text-center">
+            <h3 id="modal-title" class="text-2xl font-bold text-accent mb-2"></h3>
+            <p id="modal-message" class="text-gray-300"></p>
+        </div>
+    </div>
+
+    <!-- Volume Control Modal (New) -->
+    <div id="volume-modal" class="fixed inset-0 z-50 bg-black bg-opacity-70 flex items-center justify-center">
+        <div class="bg-slate-700 p-6 rounded-xl shadow-2xl border-2 border-secondary w-11/12 max-w-sm">
+            <h3 id="volume-modal-title" class="text-2xl font-bold text-secondary mb-4">Volume for Pad X</h3>
+            
+            <div class="space-y-4">
+                <label for="volume-slider" class="block text-lg font-medium mb-1">
+                    Level: <span id="volume-value-display">100</span>%
+                </label>
+                <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="1.0"
+                       oninput="handleVolumeSliderChange(event)"
+                       class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+            </div>
+
+            <button onclick="closeVolumeControl()" 
+                    class="mt-6 w-full py-2 bg-blue-500 hover:bg-blue-600 rounded-lg font-bold transition">
+                Close
+            </button>
+        </div>
+    </div>
+
+    <div class="container space-y-8">
+        <header class="text-center mb-10">
+            <h1 class="text-5xl font-extrabold text-white mb-2 font-['Nova_Square']">NanoDrum 16</h1>
+            <p class="text-gray-400">Advanced Percussion Synthesis & Sequencing</p>
+        </header>
+
+        <!-- Main Grid Layout -->
+        <div class="grid lg:grid-cols-3 gap-8">
+            
+            <!-- Section 1: Synth Controls & Shaper -->
+            <div class="lg:col-span-1 p-6 bg-slate-800 rounded-xl shadow-xl space-y-6">
+                <h2 class="text-3xl font-bold border-b pb-2 border-primary">1. Synth Controls</h2>
+
+                <!-- A. Note/Frequency Controls -->
+                <div class="p-4 bg-slate-700 rounded-lg space-y-2">
+                    <h3 class="text-xl font-semibold text-accent">Frequency</h3>
+                    <div class="flex items-center justify-between text-sm text-gray-400">
+                        Current: <span id="current-note-freq" class="text-white font-bold">C4 (261.6 Hz)</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <select id="note-select" onchange="handleNoteChange(event)" class="bg-gray-800 p-2 rounded w-1/2 text-white">
+                            <script>
+                                notes.forEach((n, i) => {
+                                    document.write(`<option value="${i}" ${i === 0 ? 'selected' : ''}>${n}</option>`);
+                                });
+                            </script>
+                        </select>
+                        <select id="octave-select" onchange="handleOctaveChange(event)" class="bg-gray-800 p-2 rounded w-1/2 text-white">
+                            <option value="1">Oct 1</option>
+                            <option value="2">Oct 2</option>
+                            <option value="3">Oct 3</option>
+                            <option value="4" selected>Oct 4</option>
+                            <option value="5">Oct 5</option>
+                            <option value="6">Oct 6</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- B. Envelope (AD) Controls -->
+                <div class="p-4 bg-slate-700 rounded-lg space-y-3">
+                    <h3 class="text-xl font-semibold text-accent">Envelope (AD)</h3>
+                    
+                    <div>
+                        <label for="attack-slider" class="block text-sm font-medium mb-1">Attack: <span id="attack-value">5</span>ms</label>
+                        <input type="range" id="attack-slider" min="0.001" max="0.5" step="0.001" value="0.005"
+                               oninput="handleEnvelopeChange('attack', event)"
+                               class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <div>
+                        <label for="decay-slider" class="block text-sm font-medium mb-1">Decay: <span id="decay-value">200</span>ms</label>
+                        <input type="range" id="decay-slider" min="0.01" max="1.0" step="0.01" value="0.2"
+                               oninput="handleEnvelopeChange('decay', event)"
+                               class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </div>
+
+                <!-- C. Filter (Cutoff/Res) Controls -->
+                <div class="p-4 bg-slate-700 rounded-lg space-y-3">
+                    <h3 class="text-xl font-semibold text-accent">Filter (LPF)</h3>
+                    
+                    <div>
+                        <label for="cutoff-slider" class="block text-sm font-medium mb-1">Cutoff: <span id="cutoff-value">8000</span>Hz</label>
+                        <input type="range" id="cutoff-slider" min="50" max="20000" step="50" value="8000"
+                               oninput="handleFilterChange('cutoffFreq', event)"
+                               class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <div>
+                        <label for="resonance-slider" class="block text-sm font-medium mb-1">Resonance: <span id="resonance-value">0</span>%</label>
+                        <input type="range" id="resonance-slider" min="0" max="1" step="0.01" value="0"
+                               oninput="handleFilterChange('resonance', event)"
+                               class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </div>
+
+
+                <!-- D. Waveform Shaper -->
+                <div class="border-t border-primary pt-4 space-y-4">
+                    <h3 class="text-xl font-semibold text-secondary">Wave Shaper</h3>
+                    <div class="flex items-center justify-between">
+                        <span class="text-gray-400">Current Wave:</span>
+                        <span id="current-wave-text" class="text-lg font-bold">Sine</span>
+                    </div>
+
+                    <!-- Wave Selection -->
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="wave-sine" onclick="handleWaveSelect('sine')" class="p-3 rounded-lg font-semibold shadow-md hover:opacity-80 transition">SINE</button>
+                        <button id="wave-square" onclick="handleWaveSelect('square')" class="p-3 rounded-lg font-semibold shadow-md hover:opacity-80 transition">SQUARE</button>
+                        <button id="wave-sawtooth" onclick="handleWaveSelect('sawtooth')" class="p-3 rounded-lg font-semibold shadow-md hover:opacity-80 transition">SAWTOOTH</button>
+                        <button id="wave-noise" onclick="handleWaveSelect('noise')" class="p-3 rounded-lg font-semibold shadow-md hover:opacity-80 transition">NOISE</button>
+                    </div>
+
+                    <!-- Distortion Slider -->
+                    <div>
+                        <label for="distortion-slider" class="block text-sm font-medium mb-1">Distortion: <span id="distortion-value">0</span>%</label>
+                        <input type="range" id="distortion-slider" min="0" max="1" step="0.01" value="0"
+                            oninput="handleDistortionChange(event)"
+                            class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                    </div>
+
+                    <!-- Shaper Display -->
+                    <div class="border-2 border-primary p-2 rounded-lg bg-gray-900">
+                        <canvas id="shaper-display" width="300" height="100" class="w-full h-auto"></canvas>
+                        <p class="text-xs text-center text-gray-500 mt-1">Input vs. Output Curve</p>
+                    </div>
+                </div>
+                
+                <!-- Sound Saving Buttons -->
+                <div class="pt-4 space-y-2 border-t border-primary">
+                    <button onclick="handlePreviewSound()" class="w-full py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-bold shadow-md shadow-blue-500/50 transition">
+                        Preview Sound
+                    </button>
+                    <button id="save-mode-button" onclick="toggleSaveMode()" 
+                            class="w-full py-3 bg-gray-500 hover:bg-gray-600 rounded-lg font-bold shadow-md transition">
+                        ENABLE Pad Save Mode
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Section 2: 4x4 Drum Pads & Sequencer -->
+            <div class="lg:col-span-2 p-6 bg-slate-800 rounded-xl shadow-xl space-y-4">
+                <h2 class="text-3xl font-bold border-b pb-2 border-primary">2. 16 Drum Pads</h2>
+                
+                <!-- Drum Pads -->
+                <div class="grid grid-cols-4 gap-4">
+                    <script>
+                        for (let i = 1; i <= 16; i++) {
+                            document.write(`
+                                <div id="pad-${i}" onclick="handlePadClick(${i})" 
+                                    class="pad-button pad-empty h-16 w-full flex items-center justify-center rounded-lg text-xl font-bold transition">
+                                    ${i}
+                                </div>
+                            `);
+                        }
+                    </script>
+                </div>
+
+                <!-- Section 3: Sequencer & BPM -->
+                <div class="pt-8 space-y-4">
+                    <h2 class="text-3xl font-bold border-b pb-2 border-primary">3. 16-Step Sequencer & Mixer</h2>
+
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4">
+                        <!-- BPM Control -->
+                        <div class="w-full sm:w-1/3">
+                            <label for="bpm-slider" class="block text-lg font-medium mb-1">BPM: <span id="bpm-value">120</span></label>
+                            <input type="range" id="bpm-slider" min="60" max="240" step="1" value="120"
+                                oninput="handleBPMChange(event)"
+                                class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                        </div>
+
+                        <!-- Sequence Start Button -->
+                        <button id="sequence-button" onclick="toggleSequence()" 
+                                class="w-full sm:w-auto px-8 py-3 bg-green-600 hover:bg-green-700 rounded-lg font-bold text-xl shadow-lg shadow-green-500/50 transition">
+                            START Sequence
+                        </button>
+                    </div>
+                    
+                    <!-- Sequencer Grid (16 pads x 16 steps) -->
+                    <div class="overflow-x-auto">
+                        <div class="inline-block min-w-full">
+                            <div class="flex flex-col border border-primary rounded-lg">
+                                
+                                <!-- Step Headers (1 to 16) -->
+                                <div class="flex bg-slate-900 border-b border-primary">
+                                    <div class="w-16 flex-shrink-0 p-2 text-sm font-semibold text-center">Pad/Mix</div>
+                                    <div class="flex flex-grow grid grid-16 gap-0.5 p-1">
+                                        <script>
+                                            for (let j = 1; j <= 16; j++) {
+                                                document.write(`<div class="text-center text-xs font-mono text-gray-400 p-1">${j}</div>`);
+                                            }
+                                        </script>
+                                    </div>
+                                </div>
+
+                                <!-- 16 Rows for Pads -->
+                                <script>
+                                    for (let i = 1; i <= 16; i++) {
+                                        document.write(`
+                                            <div class="flex ${i % 4 === 0 ? 'border-b border-primary' : 'border-b border-slate-700/50'}">
+                                                <!-- Pad Label & Volume Control -->
+                                                <div class="w-16 flex-shrink-0 p-2 text-sm font-bold bg-slate-900 flex items-center justify-between">
+                                                    <span>${i}</span>
+                                                    <button onclick="showVolumeControl(${i})" title="Adjust Volume"
+                                                            class="text-gray-400 hover:text-accent p-1 rounded transition">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+                                                            <path d="M12.75 3.558a.75.75 0 00-1.002-.215l-5.49 4.417A2.25 2.25 0 005.125 9.75h-.375a.75.75 0 00-.75.75v3.5c0 .414.336.75.75.75h.375c.621 0 1.2.336 1.573.832l5.49 4.417a.75.75 0 001.002-.215A.75 
+                                                            .75 0 0012.75 17V3.558zM15.375 11a.75.75 0 000-1.5 5.503 5.503 0 011.666-3.833.75.75 0 00-.916-1.11C15.9 5.3 14.636 6.12 13.5 7.158A6.974 6.974 0 0013.5 13.593a.75.75 0 001.088.666 5.46 5.46 0 011.666-3.833z" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                                <!-- Steps -->
+                                                <div class="flex flex-grow grid grid-16 gap-0.5 p-1">
+                                        `);
+                                        for (let j = 1; j <= 16; j++) {
+                                            document.write(`
+                                                <div id="step-${i}-${j}" 
+                                                    data-pad="${i}" data-step="${j}"
+                                                    onclick="toggleSequencerStep(${i}, ${j})"
+                                                    class="sequencer-step step-col w-full h-6 rounded-sm bg-gray-700 cursor-pointer hover:bg-gray-600 transition">
+                                                </div>
+                                            `);
+                                        }
+                                        document.write(`
+                                                </div>
+                                            </div>
+                                        `);
+                                    }
+                                </script>
+
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+</body>
+</html>
+

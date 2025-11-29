@@ -16,3 +16,4 @@ Single-page apps generated with Gemini AI:
 - `3d_lane_game.html` - 3D lane racing game
 - `tap_game.html` - Tap game application
 - `waveform_synth.html` - Waveform synthesizer
+- `drum_machine_a.html` - Drum machine application
