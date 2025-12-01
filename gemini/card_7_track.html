@@ -81,6 +81,28 @@
                 Back
             </button>
             <h2 class="text-xl font-semibold mb-4">Start New Game</h2>
+            
+            <!-- Game Mode Selection -->
+            <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <label class="block text-sm font-semibold text-gray-700 mb-3">Game Mode:</label>
+                <div class="space-y-2">
+                    <label class="flex items-center p-3 bg-white rounded-lg border-2 border-gray-300 hover:border-indigo-400 cursor-pointer transition">
+                        <input type="radio" name="game-mode" value="manual" checked class="mr-3 w-4 h-4 text-indigo-600">
+                        <div>
+                            <div class="font-semibold text-gray-800">Manual Entry Mode</div>
+                            <div class="text-xs text-gray-500">Manually input each card drawn (tracking physical game)</div>
+                        </div>
+                    </label>
+                    <label class="flex items-center p-3 bg-white rounded-lg border-2 border-gray-300 hover:border-indigo-400 cursor-pointer transition">
+                        <input type="radio" name="game-mode" value="virtual" class="mr-3 w-4 h-4 text-indigo-600">
+                        <div>
+                            <div class="font-semibold text-gray-800">Virtual Deck Mode</div>
+                            <div class="text-xs text-gray-500">Play with virtual deck - cards are drawn automatically</div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            
             <div id="player-inputs" class="space-y-3 mb-6">
                 <!-- Player inputs will be dynamically added here -->
             </div>
@@ -329,6 +351,14 @@
                     gameState.players.forEach(p => {
                         if (typeof p.flip_three_assigned === 'undefined') p.flip_three_assigned = false;
                     });
+                    
+                    // Ensure gameMode exists (for backward compatibility)
+                    if (!gameState.gameMode) {
+                        gameState.gameMode = 'manual';
+                    }
+                    if (!gameState.virtualDeck) {
+                        gameState.virtualDeck = [];
+                    }
                     
                     console.log(`Session ${sessionId} loaded.`);
                     showScreen('game-screen');
@@ -644,11 +674,168 @@
             return { cardsRemaining, playedCardCounts };
         }
 
+        // --- Virtual Deck Functions ---
+        
+        /**
+         * Initializes a shuffled virtual deck based on INITIAL_DECK_COUNTS.
+         */
+        function initializeVirtualDeck() {
+            const deck = [];
+            
+            // Build deck from INITIAL_DECK_COUNTS
+            for (const [key, count] of Object.entries(INITIAL_DECK_COUNTS)) {
+                for (let i = 0; i < count; i++) {
+                    if (key === 'Freeze' || key === 'Flip Three' || key === 'Second Chance') {
+                        deck.push({ type: 'Action', name: key });
+                    } else if (key.startsWith('+') || key === 'x2') {
+                        deck.push({ type: 'Modifier', value: key });
+                    } else {
+                        deck.push({ type: 'Number', value: Number(key) });
+                    }
+                }
+            }
+            
+            // Shuffle the deck using Fisher-Yates algorithm
+            for (let i = deck.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [deck[i], deck[j]] = [deck[j], deck[i]];
+            }
+            
+            gameState.virtualDeck = deck;
+            console.log('Virtual deck initialized with', deck.length, 'cards');
+        }
+        
+        /**
+         * Draws a card from the virtual deck.
+         * @returns {Object|null} The drawn card or null if deck is empty.
+         */
+        function drawFromVirtualDeck() {
+            if (!gameState.virtualDeck || gameState.virtualDeck.length === 0) {
+                return null;
+            }
+            return gameState.virtualDeck.pop();
+        }
+        
+        /**
+         * Processes a HIT action in virtual deck mode.
+         */
+        function processVirtualHit() {
+            saveCurrentState();
+            
+            const playerIndex = gameState.active_player_index;
+            const player = gameState.players[playerIndex];
+            
+            const drawnCard = drawFromVirtualDeck();
+            
+            if (!drawnCard) {
+                alert('Deck is empty! All players must STAY.');
+                return;
+            }
+            
+            // Show drawn card notification
+            showDrawnCardNotification(player.name, drawnCard);
+            
+            // Process the drawn card
+            if (drawnCard.type === 'Action') {
+                if (drawnCard.name === 'Freeze') {
+                    openFreezeModal(playerIndex);
+                    return;
+                } else if (drawnCard.name === 'Flip Three') {
+                    openFlipThreeTargetModal(playerIndex);
+                    return;
+                } else if (drawnCard.name === 'Second Chance') {
+                    player.current_line.push(drawnCard);
+                }
+            } else {
+                // Number or Modifier card
+                let turnAdvanced = false;
+                
+                if (drawnCard.type === 'Number') {
+                    const duplicateCard = player.current_line.find(c => c.type === 'Number' && c.value === drawnCard.value);
+                    if (duplicateCard) {
+                        const secondChanceCardIndex = player.current_line.findIndex(c => c.name === 'Second Chance');
+                        if (secondChanceCardIndex !== -1) {
+                            player.current_line.splice(secondChanceCardIndex, 1);
+                        } else {
+                            player.status = 'busted';
+                            player.current_line = [];
+                            player.current_score = 0;
+                            turnAdvanced = true;
+                        }
+                    } else {
+                        player.current_line.push(drawnCard);
+                    }
+                } else {
+                    player.current_line.push(drawnCard);
+                }
+                
+                player.current_score = calculateLineScore(player.current_line);
+                const uniqueNumbers = new Set(player.current_line.filter(c => c.type === 'Number').map(c => c.value));
+                
+                if (uniqueNumbers.size === 7) {
+                    openEndRoundModal(true);
+                    updateGameState();
+                    return;
+                }
+                
+                if (!turnAdvanced) {
+                    advancePlayerTurn();
+                }
+            }
+            
+            updateGameState();
+        }
+        
+        /**
+         * Shows a notification of the drawn card.
+         */
+        function showDrawnCardNotification(playerName, card) {
+            const suggestionBar = document.getElementById('suggestion-bar');
+            const cardDetails = getCardDetails(card.type, card.type === 'Action' ? card.name : card.value);
+            
+            suggestionBar.innerHTML = `
+                <p class="text-lg font-bold text-indigo-800 mb-1">Card Drawn by ${playerName}:</p>
+                <p class="text-3xl font-extrabold text-indigo-700">
+                    <span class="card-line-item ${cardDetails.class}" style="font-size: 1.5rem; padding: 8px 16px;">${cardDetails.display}</span>
+                </p>
+            `;
+            suggestionBar.className = 'bg-green-100 p-4 rounded-xl shadow-md mb-6 border-l-4 border-green-600';
+            suggestionBar.classList.remove('hidden');
+            
+            // Reset to normal suggestion after 2 seconds
+            setTimeout(() => {
+                renderSuggestion();
+            }, 2000);
+        }
+        
         function calculateSuggestion() {
             if (!gameState || !gameState.players.length) return { action: 'N/A', confidence: 0, bustRisk: 0, reason: 'Game not set up.' };
             const currentPlayer = gameState.players[activePlayerIndex];
             if (!currentPlayer || currentPlayer.status !== 'active') return { action: 'N/A', confidence: 0, bustRisk: 0, reason: 'Player not active.' };
-            const { cardsRemaining, playedCardCounts } = calculateDeckState(gameState.players);
+            
+            // Calculate cards remaining differently based on game mode
+            let cardsRemaining, playedCardCounts;
+            if (gameState.gameMode === 'virtual') {
+                cardsRemaining = gameState.virtualDeck ? gameState.virtualDeck.length : 0;
+                // For virtual mode, calculate what's left in the actual deck
+                playedCardCounts = {};
+                if (gameState.virtualDeck) {
+                    // Count what's remaining in virtual deck
+                    for (const card of gameState.virtualDeck) {
+                        const key = card.type === 'Number' ? String(card.value) : (card.type === 'Modifier' ? card.value : card.name);
+                        playedCardCounts[key] = (playedCardCounts[key] || 0) + 1;
+                    }
+                    // Invert to show what's been played (for consistency with existing logic)
+                    for (const key of Object.keys(INITIAL_DECK_COUNTS)) {
+                        const remaining = playedCardCounts[key] || 0;
+                        playedCardCounts[key] = remaining; // Actually keep as remaining for bust calc
+                    }
+                }
+            } else {
+                const deckState = calculateDeckState(gameState.players);
+                cardsRemaining = deckState.cardsRemaining;
+                playedCardCounts = deckState.playedCardCounts;
+            }
             if (cardsRemaining <= 0) return { action: 'STAY', confidence: 100, bustRisk: 100, reason: 'Deck empty! Must STAY.' };
 
             const playerNumbers = currentPlayer.current_line.filter(c => c.type === 'Number').map(c => String(c.value)); 
@@ -742,9 +929,14 @@
                 return;
             }
 
+            // Get selected game mode
+            const selectedMode = document.querySelector('input[name="game-mode"]:checked').value;
+            
             // 1. Create Game State
             gameState = {
                 round: 1,
+                gameMode: selectedMode, // 'manual' or 'virtual'
+                virtualDeck: [], // Will be populated for virtual mode
                 players: playerInputs.map((name) => ({
                     id: crypto.randomUUID(), 
                     name: name,
@@ -757,6 +949,11 @@
                 active_player_index: 0,
                 history: []
             };
+            
+            // Initialize virtual deck if in virtual mode
+            if (selectedMode === 'virtual') {
+                initializeVirtualDeck();
+            }
             // Note: The history array is empty here. The first state (S0) will be saved 
             // upon the first call to processDraw/processAction via saveCurrentState().
 
@@ -958,50 +1155,65 @@
                 } else if (newCard.name === 'Second Chance') {
                     // Second Chance is added to the line as protection
                     player.current_line.push(newCard);
+                    player.current_score = calculateLineScore(player.current_line);
+                    
+                    // Advance turn after adding Second Chance
+                    if (playerIndex === gameState.active_player_index) {
+                        advancePlayerTurn();
+                    }
+                    closeModal('draw-modal');
+                    updateGameState();
+                    return;
                 }
             } else {
                 // --- Number/Modifier Card Handling ---
-                let turnAdvanced = false;
-                let secondChanceUsed = false;
-                
                 if (newCard.type === 'Number') {
                     const duplicateCard = player.current_line.find(c => c.type === 'Number' && c.value === newCard.value);
                     if (duplicateCard) {
                         const secondChanceCardIndex = player.current_line.findIndex(c => c.name === 'Second Chance');
 
                         if (secondChanceCardIndex !== -1) {
+                            // Second Chance saves from bust - don't advance turn
                             player.current_line.splice(secondChanceCardIndex, 1);
-                            secondChanceUsed = true;
                         } else {
+                            // Player busts
                             player.status = 'busted';
                             player.current_line = [];
                             player.current_score = 0;
-                            advancePlayerTurn();
-                            turnAdvanced = true;
+                            
+                            if (playerIndex === gameState.active_player_index) {
+                                advancePlayerTurn();
+                            }
+                            closeModal('draw-modal');
+                            updateGameState();
+                            return;
                         }
                     } else {
                         player.current_line.push(newCard);
                     }
                 } else {
+                    // Modifier card
                     player.current_line.push(newCard);
                 }
 
                 player.current_score = calculateLineScore(player.current_line);
                 const uniqueNumbers = new Set(player.current_line.filter(c => c.type === 'Number').map(c => c.value));
                 
+                // Check for FLIP 7
                 if (uniqueNumbers.size === 7) {
+                    closeModal('draw-modal');
                     openEndRoundModal(true);
                     updateGameState();
                     return;
                 }
                 
-                if (playerIndex === gameState.active_player_index && !turnAdvanced && !secondChanceUsed) {
+                // Normal draw - advance turn if this was the active player
+                if (playerIndex === gameState.active_player_index) {
                     advancePlayerTurn();
                 }
             }
             
             closeModal('draw-modal');
-            advancePlayerTurn();
             updateGameState();
         }
 
@@ -1083,6 +1295,87 @@
                 input.removeAttribute('list');
                 input.type = 'number';
             }
+        }
+        
+        /**
+         * Auto-processes Flip Three in virtual mode.
+         */
+        function processVirtualFlipThree(playerIndex, isForced = false) {
+            saveCurrentState();
+            
+            const player = gameState.players[playerIndex];
+            player.flip_three_assigned = false;
+            
+            const cardsDrawn = [];
+            let isBust = false;
+            
+            // Draw 3 cards from virtual deck
+            for (let i = 0; i < 3; i++) {
+                const card = drawFromVirtualDeck();
+                if (!card) {
+                    alert('Not enough cards in deck for Flip Three!');
+                    return;
+                }
+                
+                if (card.type === 'Number') {
+                    const isDuplicateInLine = player.current_line.some(c => c.type === 'Number' && c.value === card.value);
+                    const isDuplicateInDraw = cardsDrawn.some(c => c.type === 'Number' && c.value === card.value);
+                    
+                    if (isDuplicateInLine || isDuplicateInDraw) {
+                        isBust = true;
+                    }
+                }
+                
+                cardsDrawn.push(card);
+            }
+            
+            // Show what was drawn
+            const cardDisplays = cardsDrawn.map(card => {
+                const details = getCardDetails(card.type, card.type === 'Action' ? card.name : card.value);
+                return `<span class="card-line-item ${details.class}" style="font-size: 1.2rem; padding: 6px 12px;">${details.display}</span>`;
+            }).join(' ');
+            
+            const suggestionBar = document.getElementById('suggestion-bar');
+            suggestionBar.innerHTML = `
+                <p class="text-lg font-bold text-orange-800 mb-1">Flip Three Cards Drawn by ${player.name}:</p>
+                <p class="text-2xl font-extrabold text-orange-700 mb-2">${cardDisplays}</p>
+                <p class="text-sm ${isBust ? 'text-red-600 font-bold' : 'text-green-600 font-semibold'}">${isBust ? 'DUPLICATE DETECTED - BUST!' : 'No duplicates - Safe!'}</p>
+            `;
+            suggestionBar.className = isBust ? 'bg-red-100 p-4 rounded-xl shadow-md mb-6 border-l-4 border-red-600' : 'bg-green-100 p-4 rounded-xl shadow-md mb-6 border-l-4 border-green-600';
+            suggestionBar.classList.remove('hidden');
+            
+            // Check for Second Chance
+            if (isBust) {
+                const secondChanceCardIndex = player.current_line.findIndex(c => c.name === 'Second Chance');
+                if (secondChanceCardIndex !== -1) {
+                    player.current_line.splice(secondChanceCardIndex, 1);
+                    isBust = false;
+                }
+            }
+            
+            if (isBust) {
+                player.status = 'busted';
+                player.current_line = [];
+                player.current_score = 0;
+            } else {
+                player.current_line.push(...cardsDrawn);
+            }
+            
+            player.current_score = calculateLineScore(player.current_line);
+            const uniqueNumbers = new Set(player.current_line.filter(c => c.type === 'Number').map(c => c.value));
+            
+            if (uniqueNumbers.size === 7) {
+                setTimeout(() => {
+                    openEndRoundModal(true);
+                    updateGameState();
+                }, 2000);
+                return;
+            }
+            
+            setTimeout(() => {
+                advancePlayerTurn();
+                updateGameState();
+            }, 2500);
         }
         
         function processFlipThree() {
@@ -1294,6 +1587,11 @@
 
                 gameState.round++;
                 gameState.active_player_index = 0;
+                
+                // Re-initialize virtual deck for new round if in virtual mode
+                if (gameState.gameMode === 'virtual') {
+                    initializeVirtualDeck();
+                }
             } else if (currentModalAction === 'CONFIRM_UNDO') {
                 undoLastMove();
                 closeModal('action-modal');
@@ -1378,9 +1676,37 @@
         }
 
         function renderDeckStatus() {
-            const { cardsRemaining, playedCardCounts } = calculateDeckState(gameState.players);
+            let cardsRemaining, playedCardCounts;
+            
+            if (gameState.gameMode === 'virtual') {
+                // For virtual mode, show actual deck state
+                cardsRemaining = gameState.virtualDeck ? gameState.virtualDeck.length : 0;
+                playedCardCounts = {};
+                
+                // Count remaining cards in virtual deck
+                if (gameState.virtualDeck) {
+                    for (const card of gameState.virtualDeck) {
+                        const key = card.type === 'Number' ? String(card.value) : (card.type === 'Modifier' ? card.value : card.name);
+                        playedCardCounts[key] = (playedCardCounts[key] || 0) + 1;
+                    }
+                }
+                
+                // Fill in zeros for cards not in deck
+                for (const key of Object.keys(INITIAL_DECK_COUNTS)) {
+                    if (!(key in playedCardCounts)) {
+                        playedCardCounts[key] = 0;
+                    }
+                }
+            } else {
+                // For manual mode, calculate from played cards
+                const deckState = calculateDeckState(gameState.players);
+                cardsRemaining = deckState.cardsRemaining;
+                playedCardCounts = deckState.playedCardCounts;
+            }
+            
             const statusDiv = document.getElementById('deck-status');
             statusDiv.innerHTML = `
+                <p><span class="font-semibold">Mode:</span> <span class="font-bold text-indigo-600">${gameState.gameMode === 'virtual' ? 'Virtual Deck' : 'Manual Entry'}</span></p>
                 <p>Total Cards Remaining: <span class="font-bold">${cardsRemaining}</span>/${TOTAL_CARDS}</p>
                 <p>Number Cards Remaining (High Value):
                     ${['10', '11', '12'].map(v => `<span class="mx-1">${v}: <span class="font-bold">${playedCardCounts[v] !== undefined ? playedCardCounts[v] : INITIAL_DECK_COUNTS[v]}</span></span>`).join('')}
