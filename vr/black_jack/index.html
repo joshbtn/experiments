@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VR Blackjack</title>
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <a-scene>
+        <!-- Assets -->
+        <a-assets>
+            <img id="felt" src="https://cdn.jsdelivr.net/gh/aframevr/sample-assets/assets/images/uvgrid/UV_Grid_Sm.jpg" crossorigin="anonymous">
+        </a-assets>
+
+        <!-- Camera with cursor for gaze interaction -->
+        <a-camera position="0 1.6 3">
+            <a-cursor
+                id="cursor"
+                animation__click="property: scale; startEvents: click; easing: easeInCubic; dur: 150; from: 0.1 0.1 0.1; to: 1 1 1"
+                animation__fusing="property: scale; startEvents: fusing; easing: easeInCubic; dur: 1500; from: 1 1 1; to: 0.1 0.1 0.1"
+                fuse="true"
+                fuse-timeout="1500"
+                raycaster="objects: .clickable">
+            </a-cursor>
+        </a-camera>
+
+        <!-- Table -->
+        <a-box 
+            position="0 0.75 -2" 
+            width="4" 
+            height="0.1" 
+            depth="3" 
+            color="#0a5f0a"
+            shadow="receive: true">
+        </a-box>
+
+        <!-- Dealer's Cards Area Label -->
+        <a-text 
+            value="DEALER" 
+            position="0 1.5 -3.2" 
+            align="center" 
+            color="#ffffff" 
+            width="4">
+        </a-text>
+
+        <!-- Dealer Score Display -->
+        <a-text 
+            id="dealer-score" 
+            value="Score: 0" 
+            position="0 1.3 -3.2" 
+            align="center" 
+            color="#ffff00" 
+            width="3">
+        </a-text>
+
+        <!-- Player's Cards Area Label -->
+        <a-text 
+            value="PLAYER" 
+            position="0 1.5 -0.5" 
+            align="center" 
+            color="#ffffff" 
+            width="4">
+        </a-text>
+
+        <!-- Player Score Display -->
+        <a-text 
+            id="player-score" 
+            value="Score: 0" 
+            position="0 1.3 -0.5" 
+            align="center" 
+            color="#ffff00" 
+            width="3">
+        </a-text>
+
+        <!-- Game Message Display -->
+        <a-text 
+            id="game-message" 
+            value="Look at START to begin" 
+            position="0 2.2 -2" 
+            align="center" 
+            color="#00ff00" 
+            width="6">
+        </a-text>
+
+        <!-- START Button -->
+        <a-box 
+            id="start-button" 
+            class="clickable"
+            position="0 1.2 -1.5" 
+            width="1" 
+            height="0.3" 
+            depth="0.5" 
+            color="#4444ff"
+            shadow="cast: true">
+            <a-text 
+                value="START" 
+                position="0 0 0.26" 
+                align="center" 
+                color="#ffffff" 
+                width="2">
+            </a-text>
+        </a-box>
+
+        <!-- HIT Button -->
+        <a-box 
+            id="hit-button" 
+            class="clickable"
+            position="-0.8 1.2 -1.5" 
+            width="0.8" 
+            height="0.3" 
+            depth="0.5" 
+            color="#44ff44"
+            visible="false"
+            shadow="cast: true">
+            <a-text 
+                value="HIT" 
+                position="0 0 0.26" 
+                align="center" 
+                color="#000000" 
+                width="2">
+            </a-text>
+        </a-box>
+
+        <!-- STAY Button -->
+        <a-box 
+            id="stay-button" 
+            class="clickable"
+            position="0.8 1.2 -1.5" 
+            width="0.8" 
+            height="0.3" 
+            depth="0.5" 
+            color="#ff4444"
+            visible="false"
+            shadow="cast: true">
+            <a-text 
+                value="STAY" 
+                position="0 0 0.26" 
+                align="center" 
+                color="#ffffff" 
+                width="2">
+            </a-text>
+        </a-box>
+
+        <!-- Lighting -->
+        <a-light type="ambient" color="#888888"></a-light>
+        <a-light type="directional" position="2 4 1" intensity="0.5"></a-light>
+        <a-light type="point" position="0 3 -2" intensity="0.8"></a-light>
+
+        <!-- Environment -->
+        <a-sky color="#111133"></a-sky>
+        <a-plane position="0 0 0" rotation="-90 0 0" width="20" height="20" color="#222222" shadow="receive: true"></a-plane>
+    </a-scene>
+
+    <script>
+        // Game State
+        let gameState = {
+            deck: [],
+            playerHand: [],
+            dealerHand: [],
+            gameActive: false,
+            dealerTurn: false
+        };
+
+        // Card values
+        const suits = ['♠', '♥', '♦', '♣'];
+        const ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+
+        // Initialize deck
+        function createDeck() {
+            const deck = [];
+            for (let suit of suits) {
+                for (let rank of ranks) {
+                    deck.push({ rank, suit });
+                }
+            }
+            return shuffleDeck(deck);
+        }
+
+        // Shuffle deck
+        function shuffleDeck(deck) {
+            for (let i = deck.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [deck[i], deck[j]] = [deck[j], deck[i]];
+            }
+            return deck;
+        }
+
+        // Calculate hand value
+        function calculateScore(hand) {
+            let score = 0;
+            let aces = 0;
+
+            for (let card of hand) {
+                if (card.rank === 'A') {
+                    aces++;
+                    score += 11;
+                } else if (['J', 'Q', 'K'].includes(card.rank)) {
+                    score += 10;
+                } else {
+                    score += parseInt(card.rank);
+                }
+            }
+
+            // Adjust for aces
+            while (score > 21 && aces > 0) {
+                score -= 10;
+                aces--;
+            }
+
+            return score;
+        }
+
+        // Draw a card
+        function drawCard() {
+            return gameState.deck.pop();
+        }
+
+        // Create card entity
+        function createCardEntity(card, position, showFace = true) {
+            const scene = document.querySelector('a-scene');
+            const cardEntity = document.createElement('a-entity');
+            
+            // Card background
+            const cardBg = document.createElement('a-plane');
+            cardBg.setAttribute('width', '0.35');
+            cardBg.setAttribute('height', '0.5');
+            cardBg.setAttribute('color', showFace ? '#ffffff' : '#1a1aff');
+            cardBg.setAttribute('position', position);
+            cardBg.setAttribute('shadow', 'cast: true');
+            
+            if (showFace) {
+                // Card text
+                const cardText = document.createElement('a-text');
+                const suitColor = (card.suit === '♥' || card.suit === '♦') ? '#ff0000' : '#000000';
+                cardText.setAttribute('value', `${card.rank}\n${card.suit}`);
+                cardText.setAttribute('position', `${position.x} ${position.y} ${position.z + 0.01}`);
+                cardText.setAttribute('align', 'center');
+                cardText.setAttribute('color', suitColor);
+                cardText.setAttribute('width', '0.5');
+                scene.appendChild(cardText);
+            } else {
+                // Card back pattern
+                const backText = document.createElement('a-text');
+                backText.setAttribute('value', '???');
+                backText.setAttribute('position', `${position.x} ${position.y} ${position.z + 0.01}`);
+                backText.setAttribute('align', 'center');
+                backText.setAttribute('color', '#ffffff');
+                backText.setAttribute('width', '0.5');
+                scene.appendChild(backText);
+            }
+            
+            scene.appendChild(cardBg);
+            return cardBg;
+        }
+
+        // Clear all cards from scene
+        function clearCards() {
+            const scene = document.querySelector('a-scene');
+            const cards = scene.querySelectorAll('a-plane[width="0.35"]');
+            const cardTexts = scene.querySelectorAll('a-text[width="0.5"]');
+            
+            cards.forEach(card => {
+                if (card.parentNode) card.parentNode.removeChild(card);
+            });
+            
+            cardTexts.forEach(text => {
+                const val = text.getAttribute('value');
+                if (val && (val.includes('♠') || val.includes('♥') || val.includes('♦') || val.includes('♣') || val.includes('???'))) {
+                    if (text.parentNode) text.parentNode.removeChild(text);
+                }
+            });
+        }
+
+        // Display cards
+        function displayCards() {
+            clearCards();
+            
+            // Display player cards
+            gameState.playerHand.forEach((card, index) => {
+                const xPos = -0.4 + (index * 0.4);
+                createCardEntity(card, { x: xPos, y: 1, z: -0.8 }, true);
+            });
+
+            // Display dealer cards
+            gameState.dealerHand.forEach((card, index) => {
+                const xPos = -0.4 + (index * 0.4);
+                const showFace = gameState.dealerTurn || index > 0;
+                createCardEntity(card, { x: xPos, y: 1, z: -2.8 }, showFace);
+            });
+
+            // Update scores
+            updateScores();
+        }
+
+        // Update score displays
+        function updateScores() {
+            const playerScore = calculateScore(gameState.playerHand);
+            const dealerScore = gameState.dealerTurn ? 
+                calculateScore(gameState.dealerHand) : 
+                calculateScore([gameState.dealerHand[1]]);
+
+            document.querySelector('#player-score').setAttribute('value', `Score: ${playerScore}`);
+            document.querySelector('#dealer-score').setAttribute('value', 
+                gameState.dealerTurn ? `Score: ${dealerScore}` : `Score: ${dealerScore}`);
+        }
+
+        // Update game message
+        function setMessage(text, color = '#00ff00') {
+            const messageEl = document.querySelector('#game-message');
+            messageEl.setAttribute('value', text);
+            messageEl.setAttribute('color', color);
+        }
+
+        // Start new game
+        function startGame() {
+            gameState.deck = createDeck();
+            gameState.playerHand = [];
+            gameState.dealerHand = [];
+            gameState.gameActive = true;
+            gameState.dealerTurn = false;
+
+            // Deal initial cards
+            gameState.playerHand.push(drawCard());
+            gameState.dealerHand.push(drawCard());
+            gameState.playerHand.push(drawCard());
+            gameState.dealerHand.push(drawCard());
+
+            displayCards();
+            setMessage('Choose HIT or STAY');
+
+            // Show/hide buttons
+            document.querySelector('#start-button').setAttribute('visible', 'false');
+            document.querySelector('#hit-button').setAttribute('visible', 'true');
+            document.querySelector('#stay-button').setAttribute('visible', 'true');
+
+            // Check for immediate blackjack
+            if (calculateScore(gameState.playerHand) === 21) {
+                setTimeout(playerStay, 500);
+            }
+        }
+
+        // Player hits
+        function playerHit() {
+            if (!gameState.gameActive || gameState.dealerTurn) return;
+
+            gameState.playerHand.push(drawCard());
+            displayCards();
+
+            const playerScore = calculateScore(gameState.playerHand);
+            if (playerScore > 21) {
+                endGame('BUST! Dealer wins!', '#ff0000');
+            } else if (playerScore === 21) {
+                setMessage('21! Auto-staying...', '#ffff00');
+                setTimeout(playerStay, 1000);
+            }
+        }
+
+        // Player stays
+        function playerStay() {
+            if (!gameState.gameActive || gameState.dealerTurn) return;
+
+            gameState.dealerTurn = true;
+            setMessage('Dealer\'s turn...', '#ffff00');
+            displayCards();
+
+            // Dealer plays
+            setTimeout(dealerPlay, 1000);
+        }
+
+        // Dealer plays automatically
+        function dealerPlay() {
+            let dealerScore = calculateScore(gameState.dealerHand);
+            
+            if (dealerScore < 17) {
+                gameState.dealerHand.push(drawCard());
+                displayCards();
+                dealerScore = calculateScore(gameState.dealerHand);
+                
+                if (dealerScore > 21) {
+                    endGame('Dealer busts! You win!', '#00ff00');
+                    return;
+                }
+                
+                setTimeout(dealerPlay, 1000);
+            } else {
+                // Determine winner
+                const playerScore = calculateScore(gameState.playerHand);
+                
+                if (dealerScore > playerScore) {
+                    endGame('Dealer wins!', '#ff0000');
+                } else if (playerScore > dealerScore) {
+                    endGame('You win!', '#00ff00');
+                } else {
+                    endGame('Push! It\'s a tie!', '#ffff00');
+                }
+            }
+        }
+
+        // End game
+        function endGame(message, color) {
+            gameState.gameActive = false;
+            setMessage(message, color);
+            
+            // Show start button, hide hit/stay
+            document.querySelector('#start-button').setAttribute('visible', 'true');
+            document.querySelector('#hit-button').setAttribute('visible', 'false');
+            document.querySelector('#stay-button').setAttribute('visible', 'false');
+        }
+
+        // Set up event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelector('#start-button').addEventListener('click', startGame);
+            document.querySelector('#hit-button').addEventListener('click', playerHit);
+            document.querySelector('#stay-button').addEventListener('click', playerStay);
+        });
+    </script>
+</body>
+</html>
