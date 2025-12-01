@@ -7,7 +7,7 @@
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Load Inter Font -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght400;600;700;800&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
         .card-line-item { padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; margin-right: 4px; margin-bottom: 4px; display: inline-block; }
@@ -18,6 +18,7 @@
         .busted-status { color: #dc2626; font-weight: 600; }
         .stayed-status { color: #f97316; font-weight: 600; }
         .session-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); }
+        .flip-three-assigned { border-left: 5px solid #f97316; background-color: #fff7ed; }
     </style>
 </head>
 <body class="p-4 md:p-8">
@@ -115,16 +116,9 @@
             <!-- Main Action Panel -->
             <div id="main-action-panel" class="bg-white p-6 rounded-xl shadow-lg mb-6 text-center border-t-4 border-indigo-500 hidden">
                 <p class="text-xl font-bold mb-3 text-gray-700">Action for <span id="main-action-player-name" class="text-indigo-600"></span></p>
-                <button id="draw-main-button" 
-                        onclick="openDrawModal(gameState.active_player_index)" 
-                        class="bg-indigo-600 text-white text-lg font-extrabold py-3 px-8 rounded-xl shadow-xl hover:bg-indigo-700 transition duration-150 transform hover:scale-105">
-                    Draw Card and Pass Turn
-                </button>
-                <button id="stay-main-button" 
-                        onclick="openActionModal('STAY', gameState.active_player_index)" 
-                        class="bg-amber-500 text-white text-lg font-extrabold py-3 px-8 rounded-xl shadow-xl hover:bg-amber-600 transition duration-150 ml-4 transform hover:scale-105">
-                    STAY (Bank Score)
-                </button>
+                <div id="player-action-buttons">
+                    <!-- Dynamic buttons injected here -->
+                </div>
             </div>
 
             <!-- Player Table (Responsive Cards/Table View) -->
@@ -216,7 +210,6 @@
                             <select id="flip-card-3-type" onchange="toggleFlipCardValue(3)" class="flip-card-type flex-1 p-2 border rounded-lg">
                                 <option value="Number">Number</option>
                                 <option value="Modifier">Modifier</option>
-                                <option value="Action">Action</option>
                             </select>
                             <input type="number" id="flip-card-3-value" min="0" max="12" value="7" class="flip-card-value w-24 p-2 border rounded-lg">
                         </div>
@@ -332,6 +325,11 @@
                     if (!gameState.history) {
                         gameState.history = [];
                     }
+                    // Handle players missing new properties from previous saves
+                    gameState.players.forEach(p => {
+                        if (typeof p.flip_three_assigned === 'undefined') p.flip_three_assigned = false;
+                    });
+                    
                     console.log(`Session ${sessionId} loaded.`);
                     showScreen('game-screen');
                     updateGameState(); // Rerender
@@ -503,6 +501,10 @@
                         };
                         
                         importedContent.history = importedContent.history || [];
+                        // Ensure imported state has new property
+                        importedContent.players.forEach(p => {
+                            if (typeof p.flip_three_assigned === 'undefined') p.flip_three_assigned = false;
+                        });
                         gameState = importedContent;
 
                         const sessions = getSessionIndex();
@@ -750,7 +752,7 @@
                     current_line: [],
                     current_score: 0,
                     total_score: 0,
-                    flip_three_remaining: 0,
+                    flip_three_assigned: false, // New property for assignment
                 })),
                 active_player_index: 0,
                 history: []
@@ -942,57 +944,94 @@
                 console.error("Invalid card type."); return;
             }
             
-            if (newCard.type === 'Action' && newCard.name === 'Freeze') {
-                closeModal('draw-modal');
-                openFreezeModal(playerIndex); 
-                return;
-            } else if (newCard.type === 'Action' && newCard.name === 'Flip Three') {
-                closeModal('draw-modal');
-                openFlipThreeModal(playerIndex);
-                return;
-            }
-            
-            closeModal('draw-modal');
+            // --- Action Card Handling ---
+            if (newCard.type === 'Action') {
+                if (newCard.name === 'Freeze') {
+                    closeModal('draw-modal');
+                    openFreezeModal(playerIndex); 
+                    return;
+                } else if (newCard.name === 'Flip Three') {
+                    closeModal('draw-modal');
+                    // New logic: Assign Flip Three to a target player
+                    openFlipThreeTargetModal(playerIndex);
+                    return;
+                } else if (newCard.name === 'Second Chance') {
+                    // Second Chance is added to the line as protection
+                    player.current_line.push(newCard);
+                }
+            } else {
+                // --- Number/Modifier Card Handling ---
+                let turnAdvanced = false;
+                let secondChanceUsed = false;
+                
+                if (newCard.type === 'Number') {
+                    const duplicateCard = player.current_line.find(c => c.type === 'Number' && c.value === newCard.value);
+                    if (duplicateCard) {
+                        const secondChanceCardIndex = player.current_line.findIndex(c => c.name === 'Second Chance');
 
-            let turnAdvanced = false;
-            let secondChanceUsed = false;
-
-            if (newCard.type === 'Number') {
-                const duplicateCard = player.current_line.find(c => c.type === 'Number' && c.value === newCard.value);
-                if (duplicateCard) {
-                    const secondChanceCardIndex = player.current_line.findIndex(c => c.name === 'Second Chance');
-
-                    if (secondChanceCardIndex !== -1) {
-                        player.current_line.splice(secondChanceCardIndex, 1);
-                        secondChanceUsed = true;
+                        if (secondChanceCardIndex !== -1) {
+                            player.current_line.splice(secondChanceCardIndex, 1);
+                            secondChanceUsed = true;
+                        } else {
+                            player.status = 'busted';
+                            player.current_line = [];
+                            player.current_score = 0;
+                            advancePlayerTurn();
+                            turnAdvanced = true;
+                        }
                     } else {
-                        player.status = 'busted';
-                        player.current_line = [];
-                        player.current_score = 0;
-                        advancePlayerTurn();
-                        turnAdvanced = true;
+                        player.current_line.push(newCard);
                     }
                 } else {
                     player.current_line.push(newCard);
                 }
-            } else {
-                player.current_line.push(newCard);
-            }
 
-            player.current_score = calculateLineScore(player.current_line);
-            const uniqueNumbers = new Set(player.current_line.filter(c => c.type === 'Number').map(c => c.value));
-            
-            if (uniqueNumbers.size === 7) {
-                openEndRoundModal(true);
-                updateGameState();
-                return;
+                player.current_score = calculateLineScore(player.current_line);
+                const uniqueNumbers = new Set(player.current_line.filter(c => c.type === 'Number').map(c => c.value));
+                
+                if (uniqueNumbers.size === 7) {
+                    openEndRoundModal(true);
+                    updateGameState();
+                    return;
+                }
+                
+                if (playerIndex === gameState.active_player_index && !turnAdvanced && !secondChanceUsed) {
+                    advancePlayerTurn();
+                }
             }
             
-            if (playerIndex === gameState.active_player_index && !turnAdvanced && !secondChanceUsed) {
-                advancePlayerTurn();
-            }
-
+            closeModal('draw-modal');
+            advancePlayerTurn();
             updateGameState();
+        }
+
+        function openFlipThreeTargetModal(drawingPlayerIndex) {
+            currentModalAction = 'ASSIGN_FLIP_THREE';
+            const drawingPlayer = gameState.players[drawingPlayerIndex];
+            const modal = document.getElementById('action-modal');
+            
+            document.getElementById('action-modal-title').textContent = 'Action Card: FLIP THREE ASSIGNMENT';
+            document.getElementById('action-modal-message').textContent = `Player ${drawingPlayer.name} drew FLIP THREE. Select which active player (including themselves) must use this action on their next turn.`;
+            document.getElementById('action-confirm-btn').textContent = 'Assign Flip Three';
+            
+            document.getElementById('target-label').classList.remove('hidden');
+            const targetSelect = document.getElementById('action-target');
+            targetSelect.classList.remove('hidden');
+            
+            targetSelect.innerHTML = gameState.players
+                .map((p, i) => ({ ...p, index: i }))
+                .filter(p => p.status === 'active') // Allow assignment to self or any other active player
+                .map(p => `<option value="${p.index}">${p.name} ${p.index === drawingPlayerIndex ? '(Self)' : ''}</option>`)
+                .join('');
+                
+            if (targetSelect.options.length === 0) {
+                 document.getElementById('action-modal-message').textContent = `No active players to assign FLIP THREE. The card is discarded.`;
+                 document.getElementById('action-confirm-btn').textContent = 'Discard & Pass Turn';
+                 currentModalAction = 'DISCARD_ACTION_CARD';
+            }
+
+            modal.dataset.playerIndex = drawingPlayerIndex;
+            modal.classList.remove('hidden');
         }
 
         function openFreezeModal(playerIndex) {
@@ -1024,16 +1063,25 @@
             modal.classList.remove('hidden');
         }
 
-        function openFlipThreeModal(playerIndex) {
+        function openFlipThreeModal(playerIndex, isForced = false) {
             const player = gameState.players[playerIndex];
             document.getElementById('flip-three-player-name').textContent = player.name;
             document.getElementById('flip-three-modal').dataset.playerIndex = playerIndex;
+            document.getElementById('flip-three-modal').dataset.isForced = isForced;
             document.getElementById('flip-three-modal').classList.remove('hidden');
             
             for (let i = 1; i <= 3; i++) {
-                document.getElementById(`flip-card-${i}-type`).value = 'Number';
-                document.getElementById(`flip-card-${i}-value`).value = '7';
-                toggleFlipCardValue(i);
+                // Flip three is always Number/Modifier, so we only need to filter options for Card 3
+                const typeSelect = document.getElementById(`flip-card-${i}-type`);
+                typeSelect.value = 'Number';
+                
+                const actionOption = typeSelect.querySelector('option[value="Action"]');
+                if (actionOption) actionOption.remove();
+
+                const input = document.getElementById(`flip-card-${i}-value`);
+                input.value = '7';
+                input.removeAttribute('list');
+                input.type = 'number';
             }
         }
         
@@ -1043,6 +1091,12 @@
             const modal = document.getElementById('flip-three-modal');
             const playerIndex = parseInt(modal.dataset.playerIndex);
             const player = gameState.players[playerIndex];
+            const isForced = modal.dataset.isForced === 'true';
+
+            // IMPORTANT: Clear the assignment flag BEFORE processing cards
+            // This prevents UI loop if they bust
+            player.flip_three_assigned = false; 
+            
             closeModal('flip-three-modal');
 
             const cardsDrawn = [];
@@ -1057,17 +1111,27 @@
                     const num = Number(value);
                     newCard = { type: 'Number', value: num };
                     
-                    const isDuplicate = player.current_line.some(c => c.type === 'Number' && c.value === num);
-                    if (isDuplicate) {
+                    // Check for duplicate among current line AND previously drawn cards in this flip 3
+                    const isDuplicateInLine = player.current_line.some(c => c.type === 'Number' && c.value === num);
+                    const isDuplicateInDraw = cardsDrawn.some(c => c.type === 'Number' && c.value === num);
+                    
+                    if (isDuplicateInLine || isDuplicateInDraw) {
                         isBust = true;
                     }
                 } else if (type === 'Modifier') {
                     newCard = { type: 'Modifier', value: value };
-                } else if (type === 'Action') {
-                    newCard = { type: 'Action', name: value };
                 }
                 
-                cardsDrawn.push(newCard);
+                if (newCard) cardsDrawn.push(newCard);
+            }
+            
+            // Check for Second Chance use BEFORE final bust status
+            if (isBust) {
+                 const secondChanceCardIndex = player.current_line.findIndex(c => c.name === 'Second Chance');
+                 if (secondChanceCardIndex !== -1) {
+                    player.current_line.splice(secondChanceCardIndex, 1);
+                    isBust = false; // Second Chance saves the bust!
+                 }
             }
             
             if (isBust) {
@@ -1197,6 +1261,14 @@
                     targetPlayer.status = 'stayed';
                 }
                 advancePlayerTurn();
+            } else if (currentModalAction === 'ASSIGN_FLIP_THREE') {
+                const targetIndex = parseInt(document.getElementById('action-target').value);
+                const targetPlayer = gameState.players[targetIndex];
+                
+                if (targetPlayer) {
+                    targetPlayer.flip_three_assigned = true; 
+                }
+                advancePlayerTurn();
             } else if (currentModalAction === 'DISCARD_ACTION_CARD') {
                 advancePlayerTurn();
             } else if (currentModalAction === 'END_ROUND') {
@@ -1217,6 +1289,7 @@
                     p.status = 'active';
                     p.current_line = [];
                     p.current_score = 0;
+                    p.flip_three_assigned = false; // Clear all assignments on round reset
                 }
 
                 gameState.round++;
@@ -1290,10 +1363,6 @@
             if (!modifierDatalist.innerHTML) {
                 modifierDatalist.innerHTML = '<option value="+2"><option value="+4"><option value="+6"><option value="+8"><option value="+10"><option value="x2">';
             }
-            let actionDatalist = document.getElementById('action-options');
-            if (!actionDatalist.innerHTML) {
-                 actionDatalist.innerHTML = '<option value="Freeze"><option value="Flip Three"><option value="Second Chance">';
-            }
 
             if (type === 'Number') {
                 input.type = 'number';
@@ -1305,10 +1374,6 @@
                 input.type = 'text';
                 input.value = 'x2';
                 input.setAttribute('list', 'modifier-options');
-            } else if (type === 'Action') {
-                input.type = 'text';
-                input.value = 'Second Chance';
-                input.setAttribute('list', 'action-options');
             }
         }
 
@@ -1347,10 +1412,17 @@
                     rowClass = 'active-player-row shadow-inner font-semibold';
                     activePlayerIndex = index;
                 }
+                
+                if (player.flip_three_assigned && player.status === 'active') {
+                    rowClass += ' flip-three-assigned';
+                }
+                
                 tr.className = rowClass;
 
                 let statusText = player.name;
-                if (player.status === 'busted') {
+                if (player.flip_three_assigned && player.status === 'active') {
+                    statusText += ' <span class="text-orange-600 font-bold">(FLIP 3 ASSIGNED)</span>';
+                } else if (player.status === 'busted') {
                     statusText += ' <span class="busted-status">(BUSTED)</span>';
                 } else if (player.status === 'stayed') {
                     statusText += ' <span class="stayed-status">(STAYED)</span>';
@@ -1398,6 +1470,7 @@
             const activePlayers = gameState.players.filter(p => p.status === 'active').length;
             const suggestionBar = document.getElementById('suggestion-bar');
             const actionPanel = document.getElementById('main-action-panel');
+            const actionButtonsDiv = document.getElementById('player-action-buttons');
             
             if (activePlayers === 0) {
                  suggestionBar.classList.add('hidden');
@@ -1415,24 +1488,51 @@
 
             suggestionBar.classList.remove('hidden');
             document.getElementById('current-player-name').textContent = currentPlayer.name;
-            
-            actionPanel.classList.remove('hidden');
             document.getElementById('main-action-player-name').textContent = currentPlayer.name;
-            document.getElementById('draw-main-button').onclick = () => openDrawModal(gameState.active_player_index);
-            document.getElementById('stay-main-button').onclick = () => openActionModal('STAY', gameState.active_player_index);
-
+            actionPanel.classList.remove('hidden');
             
-            const suggestion = calculateSuggestion();
+            if (currentPlayer.flip_three_assigned) {
+                // Forced Flip Three action
+                actionButtonsDiv.innerHTML = `
+                    <button onclick="openFlipThreeModal(${gameState.active_player_index}, true)" 
+                            class="bg-orange-600 text-white text-lg font-extrabold py-3 px-8 rounded-xl shadow-xl hover:bg-orange-700 transition duration-150 transform hover:scale-105">
+                        FORCED: Draw Three Cards
+                    </button>
+                `;
+                // Disable normal suggestion when player is forced to act
+                document.getElementById('suggestion-action').textContent = 'FLIP THREE';
+                document.getElementById('suggestion-confidence').textContent = '100%';
+                document.getElementById('bust-risk').textContent = 'High Risk';
+                document.getElementById('risk-reason').textContent = 'Forced action! Calculate your risk carefully.';
+                suggestionBar.className = 'bg-orange-100 p-4 rounded-xl shadow-md mb-6 border-l-4 border-orange-600';
 
-            document.getElementById('suggestion-action').textContent = suggestion.action;
-            document.getElementById('suggestion-confidence').textContent = `${suggestion.confidence}%`;
-            document.getElementById('bust-risk').textContent = `${suggestion.bustRisk}%`;
-            document.getElementById('risk-reason').textContent = suggestion.reason;
-            
-            if (suggestion.action === 'HIT') {
-                suggestionBar.className = 'bg-indigo-100 p-4 rounded-xl shadow-md mb-6 border-l-4 border-indigo-600';
             } else {
-                suggestionBar.className = 'bg-red-100 p-4 rounded-xl shadow-md mb-6 border-l-4 border-red-600';
+                // Normal turn actions
+                const suggestion = calculateSuggestion();
+                
+                actionButtonsDiv.innerHTML = `
+                    <button id="draw-main-button" 
+                            onclick="openDrawModal(gameState.active_player_index)" 
+                            class="bg-indigo-600 text-white text-lg font-extrabold py-3 px-8 rounded-xl shadow-xl hover:bg-indigo-700 transition duration-150 transform hover:scale-105">
+                        Draw Card and Pass Turn
+                    </button>
+                    <button id="stay-main-button" 
+                            onclick="openActionModal('STAY', gameState.active_player_index)" 
+                            class="bg-amber-500 text-white text-lg font-extrabold py-3 px-8 rounded-xl shadow-xl hover:bg-amber-600 transition duration-150 ml-4 transform hover:scale-105">
+                        STAY (Bank Score)
+                    </button>
+                `;
+
+                document.getElementById('suggestion-action').textContent = suggestion.action;
+                document.getElementById('suggestion-confidence').textContent = `${suggestion.confidence}%`;
+                document.getElementById('bust-risk').textContent = `${suggestion.bustRisk}%`;
+                document.getElementById('risk-reason').textContent = suggestion.reason;
+                
+                if (suggestion.action === 'HIT') {
+                    suggestionBar.className = 'bg-indigo-100 p-4 rounded-xl shadow-md mb-6 border-l-4 border-indigo-600';
+                } else {
+                    suggestionBar.className = 'bg-red-100 p-4 rounded-xl shadow-md mb-6 border-l-4 border-red-600';
+                }
             }
         }
 
