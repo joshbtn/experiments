@@ -1756,7 +1756,7 @@
 
                 const uniqueNumbers = new Set(player.current_line.filter(c => c.type === 'Number').map(c => c.value));
                 const lineDisplay = player.current_line.map(card => {
-                    const details = getCardDetails(card.type, card.value || card.name);
+                    const details = getCardDetails(card.type, card.value !== undefined ? card.value : card.name);
                     return `<span class="card-line-item ${details.class}">${details.display}</span>`;
                 }).join('');
 
