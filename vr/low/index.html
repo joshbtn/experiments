@@ -380,7 +380,7 @@
           const hdx = groundHeight(x + step, z) - groundHeight(x - step, z);
           const hdz = groundHeight(x, z + step) - groundHeight(x, z - step);
           const slopeMag = Math.sqrt(hdx*hdx + hdz*hdz) / (2*step);
-          if (slopeMag < 0.8) {
+          if (slopeMag < 0.5) {
             meshes.push(makeTree(x - cx * size, z - cz * size, y));
           }
         }
@@ -390,7 +390,14 @@
           const x = cx * size + rx;
           const z = cz * size + rz;
           const y = groundHeight(x, z);
-          meshes.push(makeRock(x - cx * size, z - cz * size, y));
+          // Skip rocks on steep slopes to avoid floating appearance
+          const step = 0.5;
+          const hdx = groundHeight(x + step, z) - groundHeight(x - step, z);
+          const hdz = groundHeight(x, z + step) - groundHeight(x, z - step);
+          const slopeMag = Math.sqrt(hdx*hdx + hdz*hdz) / (2*step);
+          if (slopeMag < 0.5) {
+            meshes.push(makeRock(x - cx * size, z - cz * size, y));
+          }
         }
         return meshes;
       }
