@@ -26,14 +26,14 @@
   <!-- Debug HUD removed -->
 
   <!-- A-Frame Scene -->
-  <a-scene renderer="colorManagement: true;" background="color: #88a9c3">
+  <a-scene renderer="colorManagement: true; antialias: true;" background="color: #88a9c3">
     <!-- Ambient + Directional Light -->
     <a-entity light="type: ambient; intensity: 0.6"></a-entity>
     <a-entity light="type: directional; intensity: 0.9" position="1 1 0"></a-entity>
 
     <!-- Player rig; camera grounding handled via system below -->
     <a-entity id="rig" position="0 2 0" auto-walk>
-      <a-entity id="camera" camera look-controls position="0 0 0"></a-entity>
+      <a-entity id="camera" camera look-controls position="0 0 0" camera="near: 0.2"></a-entity>
     </a-entity>
 
     <!-- Terrain/World Root -->
@@ -84,6 +84,7 @@
       eyeLevel: 1.6,            // meters above ground for camera
       smoothingFactor: 0.2,     // camera vertical smoothing
       groundClearance: 0.15,    // extra clearance to avoid visual clipping into steep faces
+      cameraMinHeight: 0.5,     // minimum camera height above terrain to prevent clipping
       // Valley flattening
       valleyScale: 0.02,        // frequency driving where valleys appear
       valleyDepthBias: 4.0,     // base depth threshold for flattening (lower = more flats)
@@ -148,9 +149,12 @@
       tick(time, dt) {
         const pos = this.el.object3D.position;
         const gy = groundHeight(pos.x, pos.z) + CONFIG.eyeLevel + CONFIG.groundClearance;
+        // Enforce minimum height above terrain
+        const minHeight = groundHeight(pos.x, pos.z) + CONFIG.cameraMinHeight;
+        const targetY = Math.max(gy, minHeight);
         // Smooth vertical movement
         const a = clamp(CONFIG.smoothingFactor * (dt / 16), 0, 1);
-        this.y = this.y + (gy - this.y) * a;
+        this.y = this.y + (targetY - this.y) * a;
         pos.y = this.y;
       }
     });
