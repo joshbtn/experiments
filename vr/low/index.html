@@ -23,14 +23,7 @@
     </div>
   </div>
 
-  <!-- Debug HUD -->
-  <div id="hud" class="fixed top-2 left-2 z-40 bg-black/40 text-white px-3 py-2 rounded-lg text-xs space-y-1 hud-shadow">
-    <div class="font-semibold">Debug HUD</div>
-    <div id="hud-pos">pos: (0,0,0)</div>
-    <div id="hud-chunks">chunks: 0</div>
-    <div id="hud-fps">fps: --</div>
-    <div class="opacity-80">[H] toggle HUD</div>
-  </div>
+  <!-- Debug HUD removed -->
 
   <!-- A-Frame Scene -->
   <a-scene renderer="colorManagement: true;" background="color: #88a9c3">
@@ -39,8 +32,8 @@
     <a-entity light="type: directional; intensity: 0.9" position="1 1 0"></a-entity>
 
     <!-- Player rig; camera grounding handled via system below -->
-    <a-entity id="rig" position="0 2 0">
-      <a-entity id="camera" camera look-controls wasd-controls position="0 0 0"></a-entity>
+    <a-entity id="rig" position="0 2 0" auto-walk>
+      <a-entity id="camera" camera look-controls position="0 0 0"></a-entity>
     </a-entity>
 
     <!-- Terrain/World Root -->
@@ -64,6 +57,7 @@
       drawDistance: 4,          // chunks radius to keep loaded
       terrainScale: 0.08,       // noise frequency for terrain
       terrainAmplitude: 6.0,    // height scale
+      maxSlopePerMeter: 1.2,    // limit height delta per 1m to avoid near-vertical faces
       treeDensity: 0.02,        // per m^2 probability
       rockDensity: 0.01,        // per m^2 probability
       eyeLevel: 1.6,            // meters above ground for camera
@@ -89,7 +83,6 @@
       init() {
         this.last = performance.now();
         this.fps = 0;
-        this.updateHUD = this.updateHUD.bind(this);
         this.rig = document.getElementById('rig');
       },
       tick() {
@@ -97,16 +90,6 @@
         const dt = (now - this.last) / 1000;
         this.last = now;
         this.fps = clamp(1 / dt, 0, 120);
-        this.updateHUD();
-      },
-      updateHUD() {
-        const pos = this.rig.object3D.position;
-        const posEl = document.getElementById('hud-pos');
-        const chunkEl = document.getElementById('hud-chunks');
-        const fpsEl = document.getElementById('hud-fps');
-        if (posEl) posEl.textContent = `pos: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`;
-        if (fpsEl) fpsEl.textContent = `fps: ${this.fps.toFixed(0)}`;
-        if (chunkEl && this.terrainComp) chunkEl.textContent = `chunks: ${this.terrainComp.loadedChunkCount()}`;
       }
     });
 
@@ -129,6 +112,41 @@
 
     // Apply camera grounding to rig
     document.getElementById('rig').setAttribute('ground-follow', '');
+
+    // Auto-walk component: moves the rig forward along camera look direction
+    AFRAME.registerComponent('auto-walk', {
+      schema: {
+        speed: { type: 'number', default: 2.5 }, // meters/sec
+        enabled: { type: 'boolean', default: true }
+      },
+      init() {
+        this.dir = new THREE.Vector3();
+        this.tmp = new THREE.Vector3();
+        this.camera = document.getElementById('camera');
+        this.keys = { forward: true }; // start moving forward
+        // Toggle walking with spacebar
+        window.addEventListener('keydown', (e) => {
+          if (e.code === 'Space') {
+            this.data.enabled = !this.data.enabled;
+          }
+        });
+      },
+      tick(time, dt) {
+        if (!this.data.enabled || !this.camera) return;
+        const dts = dt / 1000;
+        // Get camera forward vector and project to XZ plane
+        this.camera.object3D.getWorldDirection(this.dir);
+        this.dir.y = 0;
+        if (this.dir.lengthSq() === 0) return;
+        this.dir.normalize();
+        // Three.js camera forward is -Z; invert to move toward gaze
+        this.dir.multiplyScalar(-1);
+        // Move rig forward
+        const pos = this.el.object3D.position;
+        pos.x += this.dir.x * this.data.speed * dts;
+        pos.z += this.dir.z * this.data.speed * dts;
+      }
+    });
 
     // Chunked terrain component
     AFRAME.registerComponent('chunked-terrain', {
@@ -214,6 +232,39 @@
             uvs[idx*2 + 1] = j / (n - 1);
           }
         }
+        // Limit slope between adjacent vertices to avoid near-vertical facets
+        const step = size / (n - 1);
+        const maxDelta = CONFIG.maxSlopePerMeter * step;
+        // Perform a couple of smoothing passes
+        for (let pass = 0; pass < 2; pass++) {
+          for (let j = 0; j < n; j++) {
+            for (let i = 0; i < n; i++) {
+              const idx = j * n + i;
+              const y = positions[idx*3 + 1];
+              // Compare with left and up neighbors
+              // IMPORTANT: skip outer border so shared edges between chunks remain identical
+              if (i === 0 || i === n-1 || j === 0 || j === n-1) continue;
+              if (i > 0) {
+                const lidx = j * n + (i - 1);
+                const ly = positions[lidx*3 + 1];
+                const d = y - ly;
+                if (Math.abs(d) > maxDelta) {
+                  const target = ly + Math.sign(d) * maxDelta;
+                  positions[idx*3 + 1] = (y + target) * 0.5;
+                }
+              }
+              if (j > 0) {
+                const uidx = (j - 1) * n + i;
+                const uy = positions[uidx*3 + 1];
+                const d = y - uy;
+                if (Math.abs(d) > maxDelta) {
+                  const target = uy + Math.sign(d) * maxDelta;
+                  positions[idx*3 + 1] = (positions[idx*3 + 1] + target) * 0.5;
+                }
+              }
+            }
+          }
+        }
         // Indices for grid
         for (let j = 0; j < n - 1; j++) {
           for (let i = 0; i < n - 1; i++) {
@@ -277,7 +328,8 @@
           const rz = Math.random() * size;
           const x = cx * size + rx;
           const z = cz * size + rz;
-          const y = groundHeight(x + CONFIG.seedOffset, z + CONFIG.seedOffset);
+          // Ground precisely to terrain height at world coords
+          const y = groundHeight(x, z);
           meshes.push(makeTree(x - cx * size, z - cz * size, y));
         }
         for (let k = 0; k < rockCount; k++) {
@@ -285,7 +337,7 @@
           const rz = Math.random() * size;
           const x = cx * size + rx;
           const z = cz * size + rz;
-          const y = groundHeight(x - CONFIG.seedOffset, z - CONFIG.seedOffset);
+          const y = groundHeight(x, z);
           meshes.push(makeRock(x - cx * size, z - cz * size, y));
         }
         return meshes;
@@ -322,13 +374,7 @@
       }
     });
 
-    // HUD toggle
-    window.addEventListener('keydown', (e) => {
-      if (e.key.toLowerCase() === 'h') {
-        const hud = document.getElementById('hud');
-        hud.style.display = hud.style.display === 'none' ? 'block' : 'none';
-      }
-    });
+    // HUD removed
   </script>
 </body>
 </html>
