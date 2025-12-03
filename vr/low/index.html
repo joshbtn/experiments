@@ -39,6 +39,9 @@
     <!-- Terrain/World Root -->
     <a-entity id="world" chunked-terrain></a-entity>
 
+    <!-- Birds -->
+    <a-entity id="birds" bird-flock></a-entity>
+
     <!-- Simple Sky -->
     <a-sky color="#9db3c6"></a-sky>
   </a-scene>
@@ -66,6 +69,10 @@
       walkMaxSlope: 0.9,        // maximum climb/descend slope per meter for movement
       treeDensity: 0.02,        // per m^2 probability
       rockDensity: 0.01,        // per m^2 probability
+      birdCount: 8,             // total birds in the sky
+      birdSpawnRadius: 150,     // radius around player to spawn birds
+      birdHeight: [20, 50],     // min/max bird altitude
+      birdSpeed: [3, 6],        // min/max bird speed (m/s)
       eyeLevel: 1.6,            // meters above ground for camera
       smoothingFactor: 0.2,     // camera vertical smoothing
       groundClearance: 0.15,    // extra clearance to avoid visual clipping into steep faces
@@ -404,6 +411,112 @@
     });
 
     // Simple sky via <a-sky>; no distant background component
+
+    // Bird flock component: spawns low-poly animated birds flying around the player
+    AFRAME.registerComponent('bird-flock', {
+      init() {
+        this.birds = [];
+        this.rig = document.getElementById('rig');
+        
+        // Create birds
+        for (let i = 0; i < CONFIG.birdCount; i++) {
+          const bird = this.createBird();
+          this.birds.push(bird);
+          this.el.object3D.add(bird.group);
+        }
+      },
+      createBird() {
+        const group = new THREE.Group();
+        
+        // Simple low-poly bird: body + two wings
+        const bodyGeom = new THREE.ConeGeometry(0.15, 0.5, 4);
+        bodyGeom.rotateX(Math.PI / 2);
+        const bodyMat = new THREE.MeshLambertMaterial({ color: 0x333333, flatShading: true });
+        const body = new THREE.Mesh(bodyGeom, bodyMat);
+        group.add(body);
+        
+        // Left wing
+        const wingGeom = new THREE.BoxGeometry(0.8, 0.05, 0.3);
+        const wingMat = new THREE.MeshLambertMaterial({ color: 0x444444, flatShading: true });
+        const leftWing = new THREE.Mesh(wingGeom, wingMat);
+        leftWing.position.set(-0.4, 0, 0);
+        group.add(leftWing);
+        
+        // Right wing
+        const rightWing = new THREE.Mesh(wingGeom, wingMat);
+        rightWing.position.set(0.4, 0, 0);
+        group.add(rightWing);
+        
+        // Random spawn position around player
+        const angle = Math.random() * Math.PI * 2;
+        const dist = CONFIG.birdSpawnRadius * (0.5 + Math.random() * 0.5);
+        const rigPos = this.rig.object3D.position;
+        group.position.set(
+          rigPos.x + Math.cos(angle) * dist,
+          CONFIG.birdHeight[0] + Math.random() * (CONFIG.birdHeight[1] - CONFIG.birdHeight[0]),
+          rigPos.z + Math.sin(angle) * dist
+        );
+        
+        // Random velocity
+        const speed = CONFIG.birdSpeed[0] + Math.random() * (CONFIG.birdSpeed[1] - CONFIG.birdSpeed[0]);
+        const dir = Math.random() * Math.PI * 2;
+        
+        return {
+          group,
+          leftWing,
+          rightWing,
+          velocity: new THREE.Vector3(Math.cos(dir) * speed, 0, Math.sin(dir) * speed),
+          flapTime: Math.random() * Math.PI * 2,
+          flapSpeed: 8 + Math.random() * 4,
+          turnTimer: Math.random() * 5
+        };
+      },
+      tick(time, dt) {
+        const dts = dt / 1000;
+        const rigPos = this.rig.object3D.position;
+        
+        this.birds.forEach(bird => {
+          // Flap animation
+          bird.flapTime += bird.flapSpeed * dts;
+          const flap = Math.sin(bird.flapTime) * 0.4;
+          bird.leftWing.rotation.z = flap;
+          bird.rightWing.rotation.z = -flap;
+          
+          // Move bird
+          bird.group.position.add(bird.velocity.clone().multiplyScalar(dts));
+          
+          // Point bird in direction of travel
+          bird.group.lookAt(
+            bird.group.position.x + bird.velocity.x,
+            bird.group.position.y,
+            bird.group.position.z + bird.velocity.z
+          );
+          
+          // Occasional gentle turns
+          bird.turnTimer -= dts;
+          if (bird.turnTimer <= 0) {
+            const turnAngle = (Math.random() - 0.5) * 0.8;
+            bird.velocity.applyAxisAngle(new THREE.Vector3(0, 1, 0), turnAngle);
+            bird.turnTimer = 3 + Math.random() * 4;
+          }
+          
+          // Keep birds near player (respawn if too far)
+          const dx = bird.group.position.x - rigPos.x;
+          const dz = bird.group.position.z - rigPos.z;
+          const distSq = dx*dx + dz*dz;
+          if (distSq > CONFIG.birdSpawnRadius * CONFIG.birdSpawnRadius * 2) {
+            // Respawn on opposite side
+            const angle = Math.atan2(-dz, -dx);
+            const dist = CONFIG.birdSpawnRadius * 0.8;
+            bird.group.position.set(
+              rigPos.x + Math.cos(angle) * dist,
+              CONFIG.birdHeight[0] + Math.random() * (CONFIG.birdHeight[1] - CONFIG.birdHeight[0]),
+              rigPos.z + Math.sin(angle) * dist
+            );
+          }
+        });
+      }
+    });
 
     // HUD removed
   </script>
