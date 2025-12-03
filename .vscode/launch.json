@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Static Server: Python http.server (8000)",
+      "type": "python",
+      "request": "launch",
+      "module": "http.server",
+      "args": ["8000", "--bind", "0.0.0.0"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    },
+    {
+      "name": "Static Server: Bash script (server.sh, 8000)",
+      "type": "bash",
+      "request": "launch",
+      "program": "${workspaceFolder}/server.sh",
+      "args": ["8000"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Low-Poly Procedural World (A-Frame)</title>
+  <!-- Tailwind CSS CDN for quick utility styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- A-Frame -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <!-- Simplex Noise for terrain generation -->
+  <script src="https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.min.js" type="module"></script>
+  <style>
+    .hud-shadow { text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+  </style>
+</head>
+<body class="bg-black">
+  <!-- Loading Screen -->
+  <div id="loading" class="fixed inset-0 flex items-center justify-center bg-black/90 z-50">
+    <div class="text-center text-white">
+      <div class="text-2xl font-semibold">Generating world…</div>
+      <div class="mt-2 text-sm opacity-80">Chunked terrain, trees, rocks, background</div>
+    </div>
+  </div>
+
+  <!-- Debug HUD -->
+  <div id="hud" class="fixed top-2 left-2 z-40 bg-black/40 text-white px-3 py-2 rounded-lg text-xs space-y-1 hud-shadow">
+    <div class="font-semibold">Debug HUD</div>
+    <div id="hud-pos">pos: (0,0,0)</div>
+    <div id="hud-chunks">chunks: 0</div>
+    <div id="hud-fps">fps: --</div>
+    <div class="opacity-80">[H] toggle HUD</div>
+  </div>
+
+  <!-- A-Frame Scene -->
+  <a-scene renderer="colorManagement: true;" background="color: #88a9c3">
+    <!-- Ambient + Directional Light -->
+    <a-entity light="type: ambient; intensity: 0.6"></a-entity>
+    <a-entity light="type: directional; intensity: 0.9" position="1 1 0"></a-entity>
+
+    <!-- Player rig; camera grounding handled via system below -->
+    <a-entity id="rig" position="0 2 0">
+      <a-entity id="camera" camera look-controls wasd-controls position="0 0 0"></a-entity>
+    </a-entity>
+
+    <!-- Terrain/World Root -->
+    <a-entity id="world" chunked-terrain></a-entity>
+
+    <!-- Distant Background -->
+    <a-entity id="background" distant-background></a-entity>
+  </a-scene>
+
+  <script type="module">
+    // Import simplex-noise from module script tag
+    import { createNoise2D } from 'https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.min.js';
+
+    // Utility: clamp
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+    // World Config
+    const CONFIG = {
+      chunkSize: 20,            // meters per chunk
+      vertsPerSide: 21,         // grid resolution (must be >= 2)
+      drawDistance: 4,          // chunks radius to keep loaded
+      terrainScale: 0.08,       // noise frequency for terrain
+      terrainAmplitude: 6.0,    // height scale
+      treeDensity: 0.02,        // per m^2 probability
+      rockDensity: 0.01,        // per m^2 probability
+      eyeLevel: 1.6,            // meters above ground for camera
+      smoothingFactor: 0.2,     // camera vertical smoothing
+      seedOffset: 1000.0,       // offset to vary trees/rocks sampling
+      bgRadius: 800,            // background sphere radius
+      bgFrequency: 0.008,       // lower frequency for distant mountains
+      bgAmplitude: 60,          // height variation for mountains
+    };
+
+    // Noise instances
+    const noise2D = createNoise2D();
+    const assetNoise2D = createNoise2D();
+
+    // Height function using simplex noise
+    function groundHeight(x, z) {
+      const n = noise2D(x * CONFIG.terrainScale, z * CONFIG.terrainScale);
+      return n * CONFIG.terrainAmplitude;
+    }
+
+    // A-Frame system to track FPS and expose helpers
+    AFRAME.registerSystem('world-system', {
+      init() {
+        this.last = performance.now();
+        this.fps = 0;
+        this.updateHUD = this.updateHUD.bind(this);
+        this.rig = document.getElementById('rig');
+      },
+      tick() {
+        const now = performance.now();
+        const dt = (now - this.last) / 1000;
+        this.last = now;
+        this.fps = clamp(1 / dt, 0, 120);
+        this.updateHUD();
+      },
+      updateHUD() {
+        const pos = this.rig.object3D.position;
+        const posEl = document.getElementById('hud-pos');
+        const chunkEl = document.getElementById('hud-chunks');
+        const fpsEl = document.getElementById('hud-fps');
+        if (posEl) posEl.textContent = `pos: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`;
+        if (fpsEl) fpsEl.textContent = `fps: ${this.fps.toFixed(0)}`;
+        if (chunkEl && this.terrainComp) chunkEl.textContent = `chunks: ${this.terrainComp.loadedChunkCount()}`;
+      }
+    });
+
+    // Camera grounding component: keeps rig at ground height + eyeLevel
+    AFRAME.registerComponent('ground-follow', {
+      schema: {},
+      init() {
+        this.system = this.el.sceneEl.systems['world-system'];
+        this.y = this.el.object3D.position.y;
+      },
+      tick(time, dt) {
+        const pos = this.el.object3D.position;
+        const gy = groundHeight(pos.x, pos.z) + CONFIG.eyeLevel;
+        // Smooth vertical movement
+        const a = clamp(CONFIG.smoothingFactor * (dt / 16), 0, 1);
+        this.y = this.y + (gy - this.y) * a;
+        pos.y = this.y;
+      }
+    });
+
+    // Apply camera grounding to rig
+    document.getElementById('rig').setAttribute('ground-follow', '');
+
+    // Chunked terrain component
+    AFRAME.registerComponent('chunked-terrain', {
+      init() {
+        this.chunks = new Map();
+        this.worldRoot = this.el;
+        this.system = this.el.sceneEl.systems['world-system'];
+        this.system.terrainComp = this;
+        this.toRemove = [];
+        // Start after small delay to show loading screen
+        setTimeout(() => {
+          document.getElementById('loading').style.display = 'none';
+        }, 600);
+      },
+      loadedChunkCount() { return this.chunks.size; },
+      tick() {
+        // Determine current chunk from rig position
+        const rig = document.getElementById('rig').object3D.position;
+        const cx = Math.floor(rig.x / CONFIG.chunkSize);
+        const cz = Math.floor(rig.z / CONFIG.chunkSize);
+
+        // Desired set of chunk keys within draw distance
+        const need = new Set();
+        for (let dz = -CONFIG.drawDistance; dz <= CONFIG.drawDistance; dz++) {
+          for (let dx = -CONFIG.drawDistance; dx <= CONFIG.drawDistance; dx++) {
+            const key = `${cx+dx},${cz+dz}`;
+            need.add(key);
+            if (!this.chunks.has(key)) {
+              this.loadChunk(cx + dx, cz + dz);
+            }
+          }
+        }
+        // Unload far chunks
+        this.chunks.forEach((chunk, key) => {
+          if (!need.has(key)) {
+            this.unloadChunk(key);
+          }
+        });
+      },
+      loadChunk(cx, cz) {
+        const key = `${cx},${cz}`;
+        if (this.chunks.has(key)) return;
+
+        const group = document.createElement('a-entity');
+        group.setAttribute('position', `${cx*CONFIG.chunkSize} 0 ${cz*CONFIG.chunkSize}`);
+        this.worldRoot.appendChild(group);
+
+        // Generate terrain mesh for this chunk
+        const terrain = this.makeTerrainMesh(cx, cz);
+        group.object3D.add(terrain);
+
+        // Procedural assets (trees, rocks)
+        const assets = this.makeAssetsForChunk(cx, cz);
+        assets.forEach(m => group.object3D.add(m));
+
+        this.chunks.set(key, group);
+      },
+      unloadChunk(key) {
+        const ent = this.chunks.get(key);
+        if (!ent) return;
+        if (ent.parentElement) ent.parentElement.removeChild(ent);
+        this.chunks.delete(key);
+      },
+      makeTerrainMesh(cx, cz) {
+        const size = CONFIG.chunkSize;
+        const n = CONFIG.vertsPerSide;
+        const geom = new THREE.BufferGeometry();
+        const positions = new Float32Array(n * n * 3);
+        const normals = new Float32Array(n * n * 3);
+        const uvs = new Float32Array(n * n * 2);
+        const indices = [];
+
+        for (let j = 0; j < n; j++) {
+          for (let i = 0; i < n; i++) {
+            const idx = j * n + i;
+            const x = cx * size + (i / (n - 1)) * size;
+            const z = cz * size + (j / (n - 1)) * size;
+            const y = groundHeight(x, z);
+            positions[idx*3 + 0] = x - cx * size;
+            positions[idx*3 + 1] = y;
+            positions[idx*3 + 2] = z - cz * size;
+            uvs[idx*2 + 0] = i / (n - 1);
+            uvs[idx*2 + 1] = j / (n - 1);
+          }
+        }
+        // Indices for grid
+        for (let j = 0; j < n - 1; j++) {
+          for (let i = 0; i < n - 1; i++) {
+            const a = j * n + i;
+            const b = a + 1;
+            const c = a + n;
+            const d = c + 1;
+            indices.push(a, c, b, b, c, d);
+          }
+        }
+        geom.setIndex(indices);
+        geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geom.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+        geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+        geom.computeVertexNormals();
+
+        const material = new THREE.MeshLambertMaterial({
+          color: 0x6b9c4a,
+          flatShading: true,
+        });
+        const mesh = new THREE.Mesh(geom, material);
+        mesh.receiveShadow = true;
+        return mesh;
+      },
+      makeAssetsForChunk(cx, cz) {
+        const size = CONFIG.chunkSize;
+        const meshes = [];
+        const area = size * size;
+        const treeCount = Math.floor(area * CONFIG.treeDensity);
+        const rockCount = Math.floor(area * CONFIG.rockDensity);
+
+        // Helper to make a low-poly tree
+        function makeTree(x, z, y) {
+          const group = new THREE.Group();
+          // Trunk
+          const trunkGeom = new THREE.CylinderGeometry(0.2, 0.3, 2, 6);
+          const trunkMat = new THREE.MeshLambertMaterial({ color: 0x8b5a2b, flatShading: true });
+          const trunk = new THREE.Mesh(trunkGeom, trunkMat);
+          trunk.position.set(x, y + 1, z);
+          group.add(trunk);
+          // Foliage
+          const crownGeom = new THREE.ConeGeometry(1.2, 2.2, 6);
+          const crownMat = new THREE.MeshLambertMaterial({ color: 0x2e8b57, flatShading: true });
+          const crown = new THREE.Mesh(crownGeom, crownMat);
+          crown.position.set(x, y + 2.2, z);
+          group.add(crown);
+          return group;
+        }
+        // Helper to make a low-poly rock
+        function makeRock(x, z, y) {
+          const geom = new THREE.DodecahedronGeometry(0.7, 0);
+          const mat = new THREE.MeshLambertMaterial({ color: 0x808080, flatShading: true });
+          const rock = new THREE.Mesh(geom, mat);
+          rock.position.set(x, y + 0.35, z);
+          return rock;
+        }
+
+        // Random placements within chunk
+        for (let k = 0; k < treeCount; k++) {
+          const rx = Math.random() * size;
+          const rz = Math.random() * size;
+          const x = cx * size + rx;
+          const z = cz * size + rz;
+          const y = groundHeight(x + CONFIG.seedOffset, z + CONFIG.seedOffset);
+          meshes.push(makeTree(x - cx * size, z - cz * size, y));
+        }
+        for (let k = 0; k < rockCount; k++) {
+          const rx = Math.random() * size;
+          const rz = Math.random() * size;
+          const x = cx * size + rx;
+          const z = cz * size + rz;
+          const y = groundHeight(x - CONFIG.seedOffset, z - CONFIG.seedOffset);
+          meshes.push(makeRock(x - cx * size, z - cz * size, y));
+        }
+        return meshes;
+      }
+    });
+
+    // Distant background component: large inverted sphere with noisy mountains
+    AFRAME.registerComponent('distant-background', {
+      init() {
+        const radius = CONFIG.bgRadius;
+        const seg = 64;
+        const geom = new THREE.SphereGeometry(radius, seg, seg);
+        // Distort vertices by low-frequency noise along normal
+        const pos = geom.attributes.position;
+        const v = new THREE.Vector3();
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i);
+          const n = assetNoise2D(v.x * CONFIG.bgFrequency, v.z * CONFIG.bgFrequency);
+          const f = 1 + (n * CONFIG.bgAmplitude) / radius;
+          v.multiplyScalar(f);
+          pos.setXYZ(i, v.x, v.y, v.z);
+        }
+        geom.computeVertexNormals();
+        const mat = new THREE.MeshLambertMaterial({
+          color: 0x9db3c6,
+          side: THREE.BackSide,
+          flatShading: true,
+          transparent: true,
+          opacity: 0.8
+        });
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.position.set(0, 0, 0);
+        this.el.object3D.add(mesh);
+      }
+    });
+
+    // HUD toggle
+    window.addEventListener('keydown', (e) => {
+      if (e.key.toLowerCase() === 'h') {
+        const hud = document.getElementById('hud');
+        hud.style.display = hud.style.display === 'none' ? 'block' : 'none';
+      }
+    });
+  </script>
+</body>
+</html>
