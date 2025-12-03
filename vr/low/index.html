@@ -39,8 +39,8 @@
     <!-- Terrain/World Root -->
     <a-entity id="world" chunked-terrain></a-entity>
 
-    <!-- Distant Background -->
-    <a-entity id="background" distant-background></a-entity>
+    <!-- Simple Sky -->
+    <a-sky color="#9db3c6"></a-sky>
   </a-scene>
 
   <script type="module">
@@ -55,13 +55,25 @@
       chunkSize: 20,            // meters per chunk
       vertsPerSide: 21,         // grid resolution (must be >= 2)
       drawDistance: 4,          // chunks radius to keep loaded
-      terrainScale: 0.08,       // noise frequency for terrain
-      terrainAmplitude: 6.0,    // height scale
+      terrainScale: 0.06,       // base frequency for terrain
+      terrainAmplitude: 8.0,    // base height scale
+      octaves: 4,               // fractal noise octaves
+      lacunarity: 2.0,          // frequency multiplier per octave
+      gain: 0.5,                // amplitude multiplier per octave
+      macroScale: 0.012,        // very low-frequency macro hills
+      macroAmplitude: 18.0,     // additional hill height
       maxSlopePerMeter: 1.2,    // limit height delta per 1m to avoid near-vertical faces
+      walkMaxSlope: 0.9,        // maximum climb/descend slope per meter for movement
       treeDensity: 0.02,        // per m^2 probability
       rockDensity: 0.01,        // per m^2 probability
       eyeLevel: 1.6,            // meters above ground for camera
       smoothingFactor: 0.2,     // camera vertical smoothing
+      groundClearance: 0.15,    // extra clearance to avoid visual clipping into steep faces
+      // Valley flattening
+      valleyScale: 0.02,        // frequency driving where valleys appear
+      valleyDepthBias: 4.0,     // base depth threshold for flattening (lower = more flats)
+      valleyJitter: 2.0,        // noise-driven variation of threshold
+      valleyFlatness: 0.15,     // 0..1, closer to 0 = flatter bottoms
       seedOffset: 1000.0,       // offset to vary trees/rocks sampling
       bgRadius: 800,            // background sphere radius
       bgFrequency: 0.008,       // lower frequency for distant mountains
@@ -72,10 +84,28 @@
     const noise2D = createNoise2D();
     const assetNoise2D = createNoise2D();
 
-    // Height function using simplex noise
+    // Height function using fractal simplex noise + macro hills
     function groundHeight(x, z) {
-      const n = noise2D(x * CONFIG.terrainScale, z * CONFIG.terrainScale);
-      return n * CONFIG.terrainAmplitude;
+      // Fractal (FBM) noise for varied mid-scale features
+      let amp = CONFIG.terrainAmplitude;
+      let freq = CONFIG.terrainScale;
+      let sum = 0;
+      for (let o = 0; o < CONFIG.octaves; o++) {
+        const n = noise2D(x * freq, z * freq);
+        sum += n * amp;
+        freq *= CONFIG.lacunarity;
+        amp *= CONFIG.gain;
+      }
+      // Macro low-frequency hills for taller variations
+      const macro = noise2D(x * CONFIG.macroScale, z * CONFIG.macroScale) * CONFIG.macroAmplitude;
+      let h = sum + macro;
+      // Valley flattening: compute a local threshold and compress heights below it
+      const v = noise2D(x * CONFIG.valleyScale, z * CONFIG.valleyScale);
+      const threshold = -CONFIG.valleyDepthBias + v * CONFIG.valleyJitter;
+      if (h < threshold) {
+        h = threshold + (h - threshold) * CONFIG.valleyFlatness;
+      }
+      return h;
     }
 
     // A-Frame system to track FPS and expose helpers
@@ -102,7 +132,7 @@
       },
       tick(time, dt) {
         const pos = this.el.object3D.position;
-        const gy = groundHeight(pos.x, pos.z) + CONFIG.eyeLevel;
+        const gy = groundHeight(pos.x, pos.z) + CONFIG.eyeLevel + CONFIG.groundClearance;
         // Smooth vertical movement
         const a = clamp(CONFIG.smoothingFactor * (dt / 16), 0, 1);
         this.y = this.y + (gy - this.y) * a;
@@ -141,10 +171,23 @@
         this.dir.normalize();
         // Three.js camera forward is -Z; invert to move toward gaze
         this.dir.multiplyScalar(-1);
-        // Move rig forward
+        // Proposed next position
         const pos = this.el.object3D.position;
-        pos.x += this.dir.x * this.data.speed * dts;
-        pos.z += this.dir.z * this.data.speed * dts;
+        const stepLen = this.data.speed * dts;
+        const nextX = pos.x + this.dir.x * stepLen;
+        const nextZ = pos.z + this.dir.z * stepLen;
+        const curGY = groundHeight(pos.x, pos.z);
+        const nextGY = groundHeight(nextX, nextZ);
+        const slope = (nextGY - curGY) / Math.max(stepLen, 1e-4);
+        // If slope exceeds walking threshold, reduce step to allowable slope
+        if (Math.abs(slope) > CONFIG.walkMaxSlope) {
+          const allowableStep = Math.max(Math.abs((CONFIG.walkMaxSlope * stepLen) / (Math.abs(slope) + 1e-6)), 0);
+          pos.x += this.dir.x * allowableStep;
+          pos.z += this.dir.z * allowableStep;
+        } else {
+          pos.x = nextX;
+          pos.z = nextZ;
+        }
       }
     });
 
@@ -303,13 +346,14 @@
           const trunkGeom = new THREE.CylinderGeometry(0.2, 0.3, 2, 6);
           const trunkMat = new THREE.MeshLambertMaterial({ color: 0x8b5a2b, flatShading: true });
           const trunk = new THREE.Mesh(trunkGeom, trunkMat);
-          trunk.position.set(x, y + 1, z);
+          // Slight sinking to avoid floating on steep transitions
+          trunk.position.set(x, y + 0.9, z);
           group.add(trunk);
           // Foliage
           const crownGeom = new THREE.ConeGeometry(1.2, 2.2, 6);
           const crownMat = new THREE.MeshLambertMaterial({ color: 0x2e8b57, flatShading: true });
           const crown = new THREE.Mesh(crownGeom, crownMat);
-          crown.position.set(x, y + 2.2, z);
+          crown.position.set(x, y + 2.1, z);
           group.add(crown);
           return group;
         }
@@ -318,7 +362,8 @@
           const geom = new THREE.DodecahedronGeometry(0.7, 0);
           const mat = new THREE.MeshLambertMaterial({ color: 0x808080, flatShading: true });
           const rock = new THREE.Mesh(geom, mat);
-          rock.position.set(x, y + 0.35, z);
+          // Slight sinking to avoid floating on steep transitions
+          rock.position.set(x, y + 0.25, z);
           return rock;
         }
 
@@ -330,7 +375,14 @@
           const z = cz * size + rz;
           // Ground precisely to terrain height at world coords
           const y = groundHeight(x, z);
-          meshes.push(makeTree(x - cx * size, z - cz * size, y));
+          // Skip planting on steep slopes to avoid floating appearance
+          const step = 0.5;
+          const hdx = groundHeight(x + step, z) - groundHeight(x - step, z);
+          const hdz = groundHeight(x, z + step) - groundHeight(x, z - step);
+          const slopeMag = Math.sqrt(hdx*hdx + hdz*hdz) / (2*step);
+          if (slopeMag < 0.8) {
+            meshes.push(makeTree(x - cx * size, z - cz * size, y));
+          }
         }
         for (let k = 0; k < rockCount; k++) {
           const rx = Math.random() * size;
@@ -344,35 +396,7 @@
       }
     });
 
-    // Distant background component: large inverted sphere with noisy mountains
-    AFRAME.registerComponent('distant-background', {
-      init() {
-        const radius = CONFIG.bgRadius;
-        const seg = 64;
-        const geom = new THREE.SphereGeometry(radius, seg, seg);
-        // Distort vertices by low-frequency noise along normal
-        const pos = geom.attributes.position;
-        const v = new THREE.Vector3();
-        for (let i = 0; i < pos.count; i++) {
-          v.fromBufferAttribute(pos, i);
-          const n = assetNoise2D(v.x * CONFIG.bgFrequency, v.z * CONFIG.bgFrequency);
-          const f = 1 + (n * CONFIG.bgAmplitude) / radius;
-          v.multiplyScalar(f);
-          pos.setXYZ(i, v.x, v.y, v.z);
-        }
-        geom.computeVertexNormals();
-        const mat = new THREE.MeshLambertMaterial({
-          color: 0x9db3c6,
-          side: THREE.BackSide,
-          flatShading: true,
-          transparent: true,
-          opacity: 0.8
-        });
-        const mesh = new THREE.Mesh(geom, mat);
-        mesh.position.set(0, 0, 0);
-        this.el.object3D.add(mesh);
-      }
-    });
+    // Simple sky via <a-sky>; no distant background component
 
     // HUD removed
   </script>
