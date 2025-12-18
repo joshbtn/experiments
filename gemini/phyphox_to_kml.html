@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phyphox GPS to KML Converter</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for a cleaner mobile-first experience */
+        :root {
+            --primary-color: #4f46e5;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+        .container-card {
+            box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        input[type="file"] {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="p-4 flex items-center justify-center min-h-screen">
+    <div class="container-card w-full max-w-lg p-6 bg-white rounded-xl">
+        <h1 class="text-3xl font-extrabold text-gray-900 mb-2">Phyphox to KML</h1>
+        <p class="text-gray-500 mb-6">Convert your Location (GPS) CSV data into a Google Earth-compatible KML path.</p>
+
+        <!-- File Input Area -->
+        <div id="file-drop-area" class="border-2 border-dashed border-indigo-300 rounded-lg p-8 text-center cursor-pointer hover:border-indigo-500 transition duration-150 ease-in-out">
+            <input type="file" id="csv-file-input" accept=".csv" class="hidden" onchange="handleFileSelect(event)">
+            <svg class="mx-auto h-12 w-12 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 014 4v16a3 3 0 01-3 3H5a3 3 0 01-3-3V10a5 5 0 014-4h.1a4 4 0 01.9-7.903z"></path></svg>
+            <p class="mt-2 text-sm text-gray-600 font-medium">Drag and drop your .csv file here</p>
+            <p class="text-xs text-gray-500">or click to browse</p>
+        </div>
+
+        <!-- Status and Output Area -->
+        <div id="status-message" class="mt-4 p-3 rounded-lg text-sm hidden"></div>
+
+        <!-- Download Button -->
+        <button id="download-button" onclick="downloadKML()"
+            class="mt-6 w-full py-3 px-4 rounded-lg bg-indigo-600 text-white font-semibold text-lg hover:bg-indigo-700 transition duration-150 ease-in-out shadow-md shadow-indigo-300 disabled:opacity-50"
+            disabled>
+            Download KML File
+        </button>
+    </div>
+
+    <script>
+        // Global variables to store parsed data and KML content
+        let parsedData = null;
+        let kmlContent = null;
+        
+        // References to DOM elements
+        const fileDropArea = document.getElementById('file-drop-area');
+        const fileInput = document.getElementById('csv-file-input');
+        const statusMessage = document.getElementById('status-message');
+        const downloadButton = document.getElementById('download-button');
+
+        // Helper function to update the status message box
+        function updateStatus(message, type = 'info') {
+            statusMessage.textContent = message;
+            statusMessage.className = 'mt-4 p-3 rounded-lg text-sm';
+            statusMessage.classList.remove('hidden');
+
+            if (type === 'success') {
+                statusMessage.classList.add('bg-green-100', 'text-green-800', 'font-medium');
+            } else if (type === 'error') {
+                statusMessage.classList.add('bg-red-100', 'text-red-800', 'font-medium');
+            } else { // info
+                statusMessage.classList.add('bg-blue-100', 'text-blue-800');
+            }
+        }
+
+        // --- Drag and Drop Handlers ---
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            fileDropArea.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false); // Prevent global default drop
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            fileDropArea.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            fileDropArea.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight() { fileDropArea.classList.add('bg-indigo-50'); }
+        function unhighlight() { fileDropArea.classList.remove('bg-indigo-50'); }
+
+        fileDropArea.addEventListener('click', () => fileInput.click());
+
+        fileDropArea.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            let dt = e.dataTransfer;
+            let files = dt.files;
+            handleFiles(files);
+        }
+        
+        function handleFileSelect(event) {
+            handleFiles(event.target.files);
+        }
+
+        function handleFiles(files) {
+            if (files.length === 0) return;
+            const file = files[0];
+            if (!file.name.toLowerCase().endsWith('.csv')) {
+                updateStatus('Error: Please upload a .csv file.', 'error');
+                return;
+            }
+            updateStatus(`Processing file: ${file.name}...`, 'info');
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const csvContent = e.target.result;
+                    const result = parseCSV(csvContent);
+                    if (result && result.coordinates.length > 0) {
+                        parsedData = result;
+                        kmlContent = generateKML(result);
+                        updateStatus(`Successfully parsed ${result.coordinates.length} data points. Ready to download KML.`, 'success');
+                        downloadButton.disabled = false;
+                    } else if (result && result.error) {
+                        throw new Error(result.error);
+                    } else {
+                         throw new Error('No valid location data found in the CSV file.');
+                    }
+                } catch (error) {
+                    console.error("Conversion Error:", error);
+                    updateStatus(`Error during conversion: ${error.message}`, 'error');
+                    downloadButton.disabled = true;
+                }
+            };
+            reader.onerror = () => updateStatus('Failed to read the file.', 'error');
+            reader.readAsText(file);
+        }
+
+        /**
+         * Parses the CSV content, extracts headers, and pulls out coordinate data.
+         * Assumes standard phyphox headers: Latitude (°), Longitude (°), Altitude (m), Time (s).
+         */
+        function parseCSV(csvContent) {
+            const lines = csvContent.trim().split(/\r?\n/);
+            if (lines.length < 2) {
+                return { error: 'CSV file is empty or has no data rows.' };
+            }
+            
+            // Step 1: Find the header line, which is usually the last line that starts with 'Time'
+            let headerLineIndex = -1;
+            for (let i = lines.length - 1; i >= 0; i--) {
+                if (lines[i].toLowerCase().includes('time (s)') && lines[i].split(',').length >= 3) {
+                    headerLineIndex = i;
+                    break;
+                }
+            }
+
+            if (headerLineIndex === -1) {
+                return { error: 'Could not find a valid header row containing "Time (s)".' };
+            }
+
+            const headerLine = lines[headerLineIndex];
+            // Split the header using comma delimiter and trim spaces
+            const headers = headerLine.split(',').map(h => h.trim());
+            const dataStartIndex = headerLineIndex + 1;
+            
+            // Step 2: Identify column indices (case-insensitive and partial match)
+            const latIndex = headers.findIndex(h => h.toLowerCase().includes('latitude'));
+            const lonIndex = headers.findIndex(h => h.toLowerCase().includes('longitude'));
+            const altIndex = headers.findIndex(h => h.toLowerCase().includes('altitude'));
+            const timeIndex = headers.findIndex(h => h.toLowerCase().includes('time (s)'));
+
+            if (latIndex === -1 || lonIndex === -1) {
+                return { error: 'Missing required columns: "Latitude" and "Longitude".' };
+            }
+
+            // Step 3: Process data rows
+            const coordinates = [];
+            let name = 'Phyphox GPS Track'; // Default name
+
+            for (let i = 0; i < dataStartIndex; i++) {
+                // Try to extract a meaningful name from the metadata lines
+                if (lines[i].includes('Title of the Experiment')) {
+                    name = lines[i].split(',')[1].trim() || name;
+                }
+            }
+            
+            for (let i = dataStartIndex; i < lines.length; i++) {
+                const row = lines[i].trim();
+                if (!row) continue;
+
+                // Simple comma split for data rows
+                const values = row.split(',').map(v => v.trim());
+                
+                const lat = parseFloat(values[latIndex]);
+                const lon = parseFloat(values[lonIndex]);
+                const alt = altIndex !== -1 ? parseFloat(values[altIndex]) : 0;
+                const time = timeIndex !== -1 ? parseFloat(values[timeIndex]) : null;
+
+                // Basic validation
+                if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+                    coordinates.push({ lon, lat, alt, time });
+                }
+            }
+            
+            return { name, coordinates };
+        }
+
+        /**
+         * Generates the KML XML string from the parsed coordinate data.
+         */
+        function generateKML(data) {
+            const trackName = data.name || 'Phyphox GPS Track';
+            const coordinates = data.coordinates;
+
+            // KML header
+            let kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+    <name>${trackName}</name>
+    <Style id="phyphoxTrackStyle">
+        <LineStyle>
+            <color>ff0000ff</color> <!-- Blue (AABBGGRR) -->
+            <width>4</width>
+        </LineStyle>
+    </Style>
+    <Placemark>
+        <name>GPS Path (${coordinates.length} Points)</name>
+        <description>Path recorded using the phyphox Location (GPS) experiment.</description>
+        <styleUrl>#phyphoxTrackStyle</styleUrl>
+        <LineString>
+            <extrude>1</extrude>
+            <tessellate>1</tessellate>
+            <altitudeMode>absolute</altitudeMode>
+            <coordinates>
+`;
+
+            // Append all coordinates for the LineString
+            // Format: longitude,latitude,altitude\n
+            const coordString = coordinates.map(c => 
+                `${c.lon},${c.lat},${c.alt}`
+            ).join(' ');
+
+            kml += coordString;
+
+            // KML footer
+            kml += `
+            </coordinates>
+        </LineString>
+    </Placemark>
+</Document>
+</kml>`;
+            
+            return kml;
+        }
+
+        /**
+         * Initiates the KML file download.
+         */
+        function downloadKML() {
+            if (!kmlContent) {
+                updateStatus('No KML data generated. Please upload a valid CSV file first.', 'error');
+                return;
+            }
+
+            const trackName = parsedData && parsedData.name ? parsedData.name.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'phyphox_gps_track';
+            const filename = `${trackName}.kml`;
+
+            // Create a Blob containing the KML data
+            const blob = new Blob([kmlContent], { type: 'application/vnd.google-earth.kml+xml' });
+            const url = URL.createObjectURL(blob);
+            
+            // Create a temporary link element for download
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            
+            // Programmatically click the link to trigger the download
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            // Clean up the URL object
+            URL.revokeObjectURL(url);
+            
+            updateStatus(`KML file '${filename}' downloaded successfully.`, 'success');
+        }
+
+    </script>
+</body>
+</html>
+
