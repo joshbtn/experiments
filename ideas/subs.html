@@ -31,7 +31,10 @@
 
         <!-- Navigation -->
         <div class="flex gap-4 mb-6">
-            <button onclick="showView('team')" id="teamBtn" class="flex-1 py-3 px-6 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition">
+            <button onclick="showView('teams')" id="teamsBtn" class="flex-1 py-3 px-6 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition">
+                Teams
+            </button>
+            <button onclick="showView('roster')" id="rosterBtn" class="flex-1 py-3 px-6 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition">
                 Team Roster
             </button>
             <button onclick="showView('game')" id="gameBtn" class="flex-1 py-3 px-6 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition">
@@ -39,28 +42,59 @@
             </button>
         </div>
 
-        <!-- Team Roster View -->
-        <div id="teamView" class="bg-white rounded-lg shadow-lg p-6">
-            <h2 class="text-2xl font-bold text-gray-800 mb-4">Team Roster</h2>
+        <!-- Teams Management View -->
+        <div id="teamsView" class="bg-white rounded-lg shadow-lg p-6">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">Teams</h2>
             
-            <!-- Add Player Form -->
+            <!-- Add Team Form -->
             <div class="bg-gray-50 p-4 rounded-lg mb-6">
-                <h3 class="text-lg font-semibold mb-3">Add New Player</h3>
+                <h3 class="text-lg font-semibold mb-3">Create New Team</h3>
                 <div class="flex gap-3">
-                    <input type="text" id="playerName" placeholder="Player Name" 
+                    <input type="text" id="teamName" placeholder="Team Name" 
                            class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                    <input type="number" id="playerNumber" placeholder="Number" 
-                           class="w-24 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                    <button onclick="addPlayer()" 
+                    <button onclick="addTeam()" 
                             class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition">
-                        Add
+                        Create
                     </button>
                 </div>
             </div>
 
-            <!-- Players List -->
-            <div id="playersList" class="space-y-2">
-                <!-- Players will be rendered here -->
+            <!-- Teams List -->
+            <div id="teamsList" class="space-y-2">
+                <!-- Teams will be rendered here -->
+            </div>
+        </div>
+
+        <!-- Team Roster View -->
+        <div id="rosterView" class="hidden">
+            <div id="noTeamSelected" class="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-6">
+                <p class="text-yellow-700">Please select a team first from the Teams tab</p>
+            </div>
+            
+            <div id="rosterContent" class="bg-white rounded-lg shadow-lg p-6 hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-gray-800"><span id="currentTeamName"></span> Roster</h2>
+                </div>
+            
+                <!-- Add Player Form -->
+                <div class="bg-gray-50 p-4 rounded-lg mb-6">
+                    <h3 class="text-lg font-semibold mb-3">Add New Player</h3>
+                    <div class="flex gap-3">
+                        <input type="text" id="playerName" placeholder="Player Name" 
+                               class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <input type="number" id="playerNumber" placeholder="Number" 
+                               class="w-24 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <button onclick="addPlayer()" 
+                                class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition">
+                            Add
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Players List -->
+                <div id="playersList" class="space-y-2">
+                    <!-- Players will be rendered here -->
+                </div>
             </div>
         </div>
 
@@ -110,20 +144,211 @@
 
     <script>
         // Data Storage
-        let players = [];
+        let teams = [];
+        let currentTeam = null;
         let games = [];
         let currentGame = null;
         let timers = {};
 
         // Load data from localStorage
         function loadData() {
-            const savedPlayers = localStorage.getItem('players');
+            const savedTeams = localStorage.getItem('teams');
             const savedGames = localStorage.getItem('games');
+            const savedCurrentTeam = localStorage.getItem('currentTeam');
             
-            if (savedPlayers) players = JSON.parse(savedPlayers);
+            if (savedTeams) teams = JSON.parse(savedTeams);
             if (savedGames) games = JSON.parse(savedGames);
+            if (savedCurrentTeam) currentTeam = JSON.parse(savedCurrentTeam);
             
+            renderTeams();
             renderPlayers();
+            renderGames();
+        }
+
+        // Save data to localStorage
+        function saveData() {
+            localStorage.setItem('teams', JSON.stringify(teams));
+            localStorage.setItem('games', JSON.stringify(games));
+            if (currentTeam) {
+                localStorage.setItem('currentTeam', JSON.stringify(currentTeam));
+            }
+        }
+
+        // View Management
+        function showView(view) {
+            document.getElementById('teamsView').classList.add('hidden');
+            document.getElementById('rosterView').classList.add('hidden');
+            document.getElementById('gameView').classList.add('hidden');
+            
+            document.getElementById('teamsBtn').classList.remove('bg-blue-600', 'text-white');
+            document.getElementById('teamsBtn').classList.add('bg-gray-200', 'text-gray-700');
+            document.getElementById('rosterBtn').classList.remove('bg-blue-600', 'text-white');
+            document.getElementById('rosterBtn').classList.add('bg-gray-200', 'text-gray-700');
+            document.getElementById('gameBtn').classList.remove('bg-blue-600', 'text-white');
+            document.getElementById('gameBtn').classList.add('bg-gray-200', 'text-gray-700');
+            
+            if (view === 'teams') {
+                document.getElementById('teamsView').classList.remove('hidden');
+                document.getElementById('teamsBtn').classList.add('bg-blue-600', 'text-white');
+                document.getElementById('teamsBtn').classList.remove('bg-gray-200', 'text-gray-700');
+            } else if (view === 'roster') {
+                document.getElementById('rosterView').classList.remove('hidden');
+                document.getElementById('rosterBtn').classList.add('bg-blue-600', 'text-white');
+                document.getElementById('rosterBtn').classList.remove('bg-gray-200', 'text-gray-700');
+                
+                if (currentTeam) {
+                    document.getElementById('noTeamSelected').classList.add('hidden');
+                    document.getElementById('rosterContent').classList.remove('hidden');
+                } else {
+                    document.getElementById('noTeamSelected').classList.remove('hidden');
+                    document.getElementById('rosterContent').classList.add('hidden');
+                }
+            } else if (view === 'game') {
+                document.getElementById('gameView').classList.remove('hidden');
+                document.getElementById('gameBtn').classList.add('bg-blue-600', 'text-white');
+                document.getElementById('gameBtn').classList.remove('bg-gray-200', 'text-gray-700');
+            }
+        }
+
+        // Team Management
+        function addTeam() {
+            const name = document.getElementById('teamName').value.trim();
+            
+            if (!name) {
+                alert('Please enter a team name');
+                return;
+            }
+            
+            const team = {
+                id: Date.now(),
+                name: name,
+                players: []
+            };
+            
+            teams.push(team);
+            document.getElementById('teamName').value = '';
+            
+            saveData();
+            renderTeams();
+        }
+
+        function selectTeam(id) {
+            currentTeam = teams.find(t => t.id === id);
+            saveData();
+            renderTeams();
+            renderPlayers();
+            showView('roster');
+        }
+
+        function deleteTeam(id) {
+            if (confirm('Are you sure you want to delete this team and all its data?')) {
+                teams = teams.filter(t => t.id !== id);
+                games = games.filter(g => g.teamId !== id);
+                
+                if (currentTeam && currentTeam.id === id) {
+                    currentTeam = null;
+                }
+                
+                saveData();
+                renderTeams();
+                renderPlayers();
+                renderGames();
+            }
+        }
+
+        function renderTeams() {
+            const list = document.getElementById('teamsList');
+            
+            if (teams.length === 0) {
+                list.innerHTML = '<p class="text-gray-500 text-center py-4">No teams created yet</p>';
+                return;
+            }
+            
+            list.innerHTML = teams.map(team => `
+                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition border-2 ${currentTeam && currentTeam.id === team.id ? 'border-blue-500' : 'border-transparent'}">
+                    <div class="flex items-center gap-4 flex-1" onclick="selectTeam(${team.id})" style="cursor: pointer;">
+                        <span class="text-xl font-bold text-blue-600">🏆</span>
+                        <div>
+                            <span class="text-lg font-semibold text-gray-800">${team.name}</span>
+                            <span class="text-sm text-gray-500 ml-3">${team.players.length} players</span>
+                        </div>
+                    </div>
+                    <button onclick="event.stopPropagation(); deleteTeam(${team.id})" 
+                            class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition">
+                        Delete
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Player Management
+        function addPlayer() {
+            if (!currentTeam) {
+                alert('Please select a team first');
+                return;
+            }
+            
+            const name = document.getElementById('playerName').value.trim();
+            const number = document.getElementById('playerNumber').value.trim();
+            
+            if (!name || !number) {
+                alert('Please enter both name and number');
+                return;
+            }
+            
+            currentTeam.players.push({
+                id: Date.now(),
+                name: name,
+                number: parseInt(number)
+            });
+            
+            document.getElementById('playerName').value = '';
+            document.getElementById('playerNumber').value = '';
+            
+            saveData();
+            renderPlayers();
+            renderTeams();
+        }
+
+        function deletePlayer(id) {
+            if (!currentTeam) return;
+            
+            if (confirm('Are you sure you want to delete this player?')) {
+                currentTeam.players = currentTeam.players.filter(p => p.id !== id);
+                saveData();
+                renderPlayers();
+                renderTeams();
+            }
+        }
+
+        function renderPlayers() {
+            const list = document.getElementById('playersList');
+            
+            if (!currentTeam) {
+                list.innerHTML = '';
+                return;
+            }
+            
+            document.getElementById('currentTeamName').textContent = currentTeam.name;
+            
+            if (currentTeam.players.length === 0) {
+                list.innerHTML = '<p class="text-gray-500 text-center py-4">No players added yet</p>';
+                return;
+            }
+            
+            list.innerHTML = currentTeam.players.sort((a, b) => a.number - b.number).map(player => `
+                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+                    <div class="flex items-center gap-4">
+                        <span class="text-2xl font-bold text-blue-600 w-12">#${player.number}</span>
+                        <span class="text-lg font-semibold text-gray-800">${player.name}</span>
+                    </div>
+                    <button onclick="deletePlayer(${player.id})" 
+                            class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition">
+                        Delete
+                    </button>
+                </div>
+            `).join('');
+        }
             renderGames();
         }
 
@@ -345,8 +570,75 @@
             renderActiveGame();
         }
 
-        // Initialize
-        loadData();
-    </script>
-</body>
+        // Export and Import Functions
+        function exportData() {
+            const exportObj = {
+                players: players,
+                games: games,
+                exportDate: new Date().toISOString(),
+                version: '1.0'
+            };
+            
+            const dataStr = JSON.stringify(exportObj, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `team-tracker-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
+
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importObj = JSON.parse(e.target.result);
+                    
+                    if (!importObj.players || !importObj.games) {
+                        alert('Invalid data format');
+                        return;
+                    }
+                    
+                    if (players.length > 0 || games.length > 0) {
+                        if (!confirm('This will replace all existing data. Continue?')) {
+                            return;
+                        }
+                    }
+                    
+                    players = importObj.players;
+                    games = importObj.games;
+                    
+                    // Clear current game state
+                    currentGame = null;
+                    Object.values(timers).forEach(timer => clearInterval(timer.interval));
+                    timers = {};
+                    
+                    saveData();
+                    renderPlayers();
+                    renderGames();
+                    
+                    if (document.getElementById('gameView').classList.contains('hidden')) {
+                        // If on team view, just render
+                    } else {
+                        // If on game view, hide active game
+                        document.getElementById('activeGame').classList.add('hidden');
+                    }
+                    
+                    alert(`Successfully imported ${players.length} players and ${games.length} games`);
+                } catch (error) {
+                    alert('Error importing data: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+            
+            // Reset file input
+            event.target.value = '';
+        }
+
 </html>
