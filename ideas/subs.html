@@ -445,25 +445,39 @@ so<!DOCTYPE html>
         function selectGame(id) {
             currentGame = games.find(g => g.id === id);
             
-            // Clear all timers
+            // Stop game timer if running
+            stopGameTimer();
+            
+            // Clear all player timers
             Object.values(timers).forEach(timer => clearInterval(timer.interval));
             timers = {};
+            
+            // Load game timer
+            gameTime = currentGame.gameTime || 0;
+            updateGameTimerDisplay();
             
             renderActiveGame();
         }
 
         function endGame() {
-            if (confirm('End this game? All timers will be saved.')) {
-                // Stop all timers
-                Object.values(timers).forEach(timer => {
-                    if (timer.interval) clearInterval(timer.interval);
-                });
-                timers = {};
-                
-                currentGame = null;
-                document.getElementById('activeGame').classList.add('hidden');
-                saveData();
+            if (!confirm('End this game? All timers will be saved and the game will close.')) {
+                return;
             }
+            
+            // Stop game timer
+            stopGameTimer();
+            
+            // Stop all player timers
+            Object.values(timers).forEach(timer => {
+                if (timer.interval) clearInterval(timer.interval);
+            });
+            timers = {};
+            
+            currentGame = null;
+            gameTime = 0;
+            isGameRunning = false;
+            document.getElementById('activeGame').classList.add('hidden');
+            saveData();
         }
 
         function renderGames() {
@@ -589,6 +603,115 @@ so<!DOCTYPE html>
             
             saveData();
             renderActiveGame();
+        }
+
+        function toggleGoalie(playerId) {
+            const player = currentGame.players.find(p => p.id === playerId);
+            
+            // If setting this player as goalie, remove goalie status from all others
+            if (!player.isGoalie) {
+                currentGame.players.forEach(p => p.isGoalie = false);
+            }
+            
+            player.isGoalie = !player.isGoalie;
+            saveData();
+            renderActiveGame();
+        }
+
+        function togglePresence(playerId) {
+            const player = currentGame.players.find(p => p.id === playerId);
+            player.isPresent = !player.isPresent;
+            
+            // If marking absent and player is playing, sub them out
+            if (!player.isPresent && player.isPlaying) {
+                player.isPlaying = false;
+                if (timers[playerId]) {
+                    clearInterval(timers[playerId].interval);
+                    delete timers[playerId];
+                }
+            }
+            
+            saveData();
+            renderActiveGame();
+        }
+
+        function toggleControls() {
+            const section = document.getElementById('controlsSection');
+            const chevron = document.getElementById('controlsChevron');
+            
+            if (section.classList.contains('hidden')) {
+                section.classList.remove('hidden');
+                chevron.classList.add('rotate-180');
+            } else {
+                section.classList.add('hidden');
+                chevron.classList.remove('rotate-180');
+            }
+        }
+
+        function resetAllTimers() {
+            if (!confirm('Reset all player timers and substitution counts? This cannot be undone.')) {
+                return;
+            }
+            
+            // Stop all running timers
+            Object.values(timers).forEach(timer => clearInterval(timer.interval));
+            timers = {};
+            
+            // Reset all player stats
+            currentGame.players.forEach(player => {
+                player.playTime = 0;
+                player.subs = 0;
+                player.isPlaying = false;
+            });
+            
+            // Reset game timer
+            stopGameTimer();
+            gameTime = 0;
+            updateGameTimerDisplay();
+            
+            saveData();
+            renderActiveGame();
+        }
+
+        function startGameTimer() {
+            if (isGameRunning) return;
+            
+            isGameRunning = true;
+            document.getElementById('startGameBtn').classList.add('hidden');
+            document.getElementById('stopGameBtn').classList.remove('hidden');
+            
+            gameTimerInterval = setInterval(() => {
+                gameTime++;
+                updateGameTimerDisplay();
+                if (currentGame) {
+                    currentGame.gameTime = gameTime;
+                    saveData();
+                }
+            }, 1000);
+        }
+
+        function stopGameTimer() {
+            if (!isGameRunning) return;
+            
+            isGameRunning = false;
+            document.getElementById('startGameBtn').classList.remove('hidden');
+            document.getElementById('stopGameBtn').classList.add('hidden');
+            
+            if (gameTimerInterval) {
+                clearInterval(gameTimerInterval);
+                gameTimerInterval = null;
+            }
+            
+            if (currentGame) {
+                currentGame.gameTime = gameTime;
+                saveData();
+            }
+        }
+
+        function updateGameTimerDisplay() {
+            const minutes = Math.floor(gameTime / 60);
+            const seconds = gameTime % 60;
+            document.getElementById('gameTimer').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
         }
 
         // Export and Import Functions
