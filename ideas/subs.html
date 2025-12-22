@@ -428,7 +428,9 @@ so<!DOCTYPE html>
                     ...p,
                     playTime: 0,
                     subs: 0,
-                    isPlaying: false
+                    isPlaying: false,
+                    isGoalie: false,
+                    isPresent: true
                 }))
             };
             
@@ -497,25 +499,62 @@ so<!DOCTYPE html>
                 const minutes = Math.floor(player.playTime / 60);
                 const seconds = player.playTime % 60;
                 const timeDisplay = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                const isPresent = player.isPresent !== false;
+                const isGoalie = player.isGoalie || false;
                 
                 return `
-                    <div class="p-3 sm:p-4 bg-gray-50 rounded-lg border-2 ${player.isPlaying ? 'border-green-500 bg-green-50' : 'border-gray-200'}">
-                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                            <div class="flex items-center gap-2 sm:gap-4">
-                                <span class="text-lg sm:text-xl font-bold ${player.isPlaying ? 'text-green-600' : 'text-gray-600'} w-8 sm:w-10">#${player.number}</span>
-                                <span class="text-base sm:text-lg font-semibold text-gray-800">${player.name}</span>
-                            </div>
-                            <div class="flex items-center justify-between sm:justify-end gap-3">
-                                <div class="text-left sm:text-right">
-                                    <div class="text-xl sm:text-2xl font-mono font-bold ${player.isPlaying ? 'text-green-600' : 'text-gray-800'}" id="timer-${player.id}">${timeDisplay}</div>
-                                    <div class="text-xs sm:text-sm text-gray-500">Subs: ${player.subs}</div>
+                    <div class="p-3 sm:p-4 rounded-lg border-2 ${!isPresent ? 'bg-gray-100 opacity-60 border-gray-300' : player.isPlaying ? 'border-green-500 bg-green-50' : 'bg-gray-50 border-gray-200'}">
+                        <div class="flex flex-col gap-3">
+                            <!-- Player Info Row -->
+                            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                <div class="flex items-center gap-2 sm:gap-4">
+                                    <span class="text-lg sm:text-xl font-bold ${!isPresent ? 'text-gray-400' : player.isPlaying ? 'text-green-600' : 'text-gray-600'} w-8 sm:w-10">#${player.number}</span>
+                                    <div class="flex flex-col">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-base sm:text-lg font-semibold ${!isPresent ? 'text-gray-500 line-through' : 'text-gray-800'}">${player.name}</span>
+                                            ${isGoalie ? '<span class="text-xs bg-blue-500 text-white px-2 py-0.5 rounded font-semibold">🥅 GOALIE</span>' : ''}
+                                            ${!isPresent ? '<span class="text-xs bg-gray-400 text-white px-2 py-0.5 rounded font-semibold">ABSENT</span>' : ''}
+                                        </div>
+                                    </div>
                                 </div>
-                                <button onclick="togglePlayer(${player.id})" 
-                                        class="px-4 sm:px-6 py-2 sm:py-3 ${player.isPlaying ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'} text-white rounded-lg font-semibold transition text-sm sm:text-base whitespace-nowrap">
-                                    ${player.isPlaying ? 'Sub Out' : 'Sub In'}
+                                <div class="flex items-center justify-between sm:justify-end gap-3">
+                                    <div class="text-left sm:text-right">
+                                        <div class="text-xl sm:text-2xl font-mono font-bold ${!isPresent ? 'text-gray-400' : player.isPlaying ? 'text-green-600' : 'text-gray-800'}" id="timer-${player.id}">${timeDisplay}</div>
+                                        <div class="text-xs sm:text-sm text-gray-500">Subs: ${player.subs}</div>
+                                    </div>
+                                    <button onclick="togglePlayer(${player.id})" 
+                                            ${!isPresent ? 'disabled' : ''}
+                                            class="px-4 sm:px-6 py-2 sm:py-3 ${!isPresent ? 'bg-gray-300 cursor-not-allowed' : player.isPlaying ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'} text-white rounded-lg font-semibold transition text-sm sm:text-base whitespace-nowrap">
+                                        ${player.isPlaying ? 'Sub Out' : 'Sub In'}
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Quick Actions Row -->
+                            ${isPresent ? `
+                            <div class="flex flex-wrap gap-2 pt-2 border-t border-gray-200">
+                                <button onclick="toggleGoalie(${player.id})" 
+                                        class="text-xs px-3 py-1.5 ${isGoalie ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'} rounded-lg hover:opacity-80 transition font-medium">
+                                    ${isGoalie ? '✓ Goalie' : 'Set Goalie'}
+                                </button>
+                                <button onclick="togglePresence(${player.id})" 
+                                        class="text-xs px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition font-medium">
+                                    Mark Absent
                                 </button>
                             </div>
+                            ` : `
+                            <div class="flex gap-2 pt-2 border-t border-gray-200">
+                                <button onclick="togglePresence(${player.id})" 
+                                        class="text-xs px-3 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-medium">
+                                    Mark Present
+                                </button>
+                            </div>
+                            `}
                         </div>
+                    </div>
+                `;
+            }).join('');
+        }
                     </div>
                 `;
             }).join('');
