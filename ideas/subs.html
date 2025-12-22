@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+so<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -133,17 +133,55 @@
             <!-- Active Game View -->
             <div id="activeGame" class="hidden">
                 <div class="bg-white rounded-lg shadow-lg p-4 sm:p-6">
-                    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4 sm:mb-6">
-                        <h2 class="text-lg sm:text-2xl font-bold text-gray-800" id="currentGameName"></h2>
-                        <button onclick="endGame()" 
-                                class="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition text-sm sm:text-base whitespace-nowrap">
-                            End Game
-                        </button>
+                    <!-- Game Header with Timer -->
+                    <div class="mb-4 sm:mb-6">
+                        <h2 class="text-lg sm:text-2xl font-bold text-gray-800 mb-3" id="currentGameName"></h2>
+                        
+                        <!-- Game Timer -->
+                        <div class="bg-gradient-to-r from-purple-50 to-blue-50 p-4 rounded-lg border-2 border-purple-200">
+                            <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
+                                <div class="text-center sm:text-left">
+                                    <div class="text-xs sm:text-sm text-gray-600 mb-1">Game Time</div>
+                                    <div class="text-3xl sm:text-4xl font-mono font-bold text-purple-600" id="gameTimer">0:00</div>
+                                </div>
+                                <div class="flex gap-2">
+                                    <button onclick="startGameTimer()" id="startGameBtn"
+                                            class="px-4 sm:px-6 py-2 sm:py-3 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition text-sm sm:text-base whitespace-nowrap">
+                                        ▶ Start
+                                    </button>
+                                    <button onclick="stopGameTimer()" id="stopGameBtn"
+                                            class="px-4 sm:px-6 py-2 sm:py-3 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition text-sm sm:text-base whitespace-nowrap hidden">
+                                        ⏸ Stop
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Players in Game -->
-                    <div id="gamePlayers" class="space-y-3">
+                    <div id="gamePlayers" class="space-y-3 mb-4">
                         <!-- Game players will be rendered here -->
+                    </div>
+
+                    <!-- Collapsible Controls Section -->
+                    <div class="border-t-2 border-gray-200 pt-4">
+                        <button onclick="toggleControls()" 
+                                class="w-full flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+                            <span class="font-semibold text-gray-700">Advanced Controls</span>
+                            <svg id="controlsChevron" class="w-5 h-5 text-gray-500 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </button>
+                        <div id="controlsSection" class="hidden mt-3 p-4 bg-gray-50 rounded-lg space-y-3">
+                            <button onclick="resetAllTimers()" 
+                                    class="w-full px-4 py-3 bg-yellow-600 text-white rounded-lg font-semibold hover:bg-yellow-700 transition">
+                                🔄 Reset All Player Timers
+                            </button>
+                            <button onclick="endGame()" 
+                                    class="w-full px-4 py-3 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition">
+                                ✖ End Game
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -157,6 +195,9 @@
         let games = [];
         let currentGame = null;
         let timers = {};
+        let gameTimerInterval = null;
+        let gameTime = 0;
+        let isGameRunning = false;
 
         // Load data from localStorage
         function loadData() {
