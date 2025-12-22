@@ -10,8 +10,23 @@
     <div id="app" class="container mx-auto px-4 py-8 max-w-4xl">
         <!-- Header -->
         <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
-            <h1 class="text-3xl font-bold text-gray-800 mb-2">Team Substitution Tracker</h1>
-            <p class="text-gray-600">Manage players, track game time, and monitor substitutions</p>
+            <div class="flex justify-between items-start mb-4">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-800 mb-2">Team Substitution Tracker</h1>
+                    <p class="text-gray-600">Manage players, track game time, and monitor substitutions</p>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="exportData()" 
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition text-sm">
+                        📥 Export
+                    </button>
+                    <button onclick="document.getElementById('importFile').click()" 
+                            class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition text-sm">
+                        📤 Import
+                    </button>
+                    <input type="file" id="importFile" accept=".json" onchange="importData(event)" class="hidden">
+                </div>
+            </div>
         </div>
 
         <!-- Navigation -->
