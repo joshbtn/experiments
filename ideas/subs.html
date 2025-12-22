@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Team Substitution Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="app" class="container mx-auto px-4 py-8 max-w-4xl">
+        <!-- Header -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Team Substitution Tracker</h1>
+            <p class="text-gray-600">Manage players, track game time, and monitor substitutions</p>
+        </div>
+
+        <!-- Navigation -->
+        <div class="flex gap-4 mb-6">
+            <button onclick="showView('team')" id="teamBtn" class="flex-1 py-3 px-6 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition">
+                Team Roster
+            </button>
+            <button onclick="showView('game')" id="gameBtn" class="flex-1 py-3 px-6 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition">
+                Game View
+            </button>
+        </div>
+
+        <!-- Team Roster View -->
+        <div id="teamView" class="bg-white rounded-lg shadow-lg p-6">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">Team Roster</h2>
+            
+            <!-- Add Player Form -->
+            <div class="bg-gray-50 p-4 rounded-lg mb-6">
+                <h3 class="text-lg font-semibold mb-3">Add New Player</h3>
+                <div class="flex gap-3">
+                    <input type="text" id="playerName" placeholder="Player Name" 
+                           class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <input type="number" id="playerNumber" placeholder="Number" 
+                           class="w-24 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <button onclick="addPlayer()" 
+                            class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition">
+                        Add
+                    </button>
+                </div>
+            </div>
+
+            <!-- Players List -->
+            <div id="playersList" class="space-y-2">
+                <!-- Players will be rendered here -->
+            </div>
+        </div>
+
+        <!-- Game View -->
+        <div id="gameView" class="hidden">
+            <!-- Game Selection -->
+            <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">Game Management</h2>
+                
+                <!-- Create New Game -->
+                <div class="bg-gray-50 p-4 rounded-lg mb-4">
+                    <div class="flex gap-3">
+                        <input type="text" id="gameName" placeholder="Game Name (e.g., vs Eagles)" 
+                               class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <button onclick="createGame()" 
+                                class="px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition">
+                            New Game
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Select Existing Game -->
+                <div id="gamesList" class="space-y-2">
+                    <!-- Games will be rendered here -->
+                </div>
+            </div>
+
+            <!-- Active Game View -->
+            <div id="activeGame" class="hidden">
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold text-gray-800" id="currentGameName"></h2>
+                        <button onclick="endGame()" 
+                                class="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition">
+                            End Game
+                        </button>
+                    </div>
+
+                    <!-- Players in Game -->
+                    <div id="gamePlayers" class="space-y-3">
+                        <!-- Game players will be rendered here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data Storage
+        let players = [];
+        let games = [];
+        let currentGame = null;
+        let timers = {};
+
+        // Load data from localStorage
+        function loadData() {
+            const savedPlayers = localStorage.getItem('players');
+            const savedGames = localStorage.getItem('games');
+            
+            if (savedPlayers) players = JSON.parse(savedPlayers);
+            if (savedGames) games = JSON.parse(savedGames);
+            
+            renderPlayers();
+            renderGames();
+        }
+
+        // Save data to localStorage
+        function saveData() {
+            localStorage.setItem('players', JSON.stringify(players));
+            localStorage.setItem('games', JSON.stringify(games));
+        }
+
+        // View Management
+        function showView(view) {
+            document.getElementById('teamView').classList.add('hidden');
+            document.getElementById('gameView').classList.add('hidden');
+            
+            document.getElementById('teamBtn').classList.remove('bg-blue-600', 'text-white');
+            document.getElementById('teamBtn').classList.add('bg-gray-200', 'text-gray-700');
+            document.getElementById('gameBtn').classList.remove('bg-blue-600', 'text-white');
+            document.getElementById('gameBtn').classList.add('bg-gray-200', 'text-gray-700');
+            
+            if (view === 'team') {
+                document.getElementById('teamView').classList.remove('hidden');
+                document.getElementById('teamBtn').classList.add('bg-blue-600', 'text-white');
+                document.getElementById('teamBtn').classList.remove('bg-gray-200', 'text-gray-700');
+            } else if (view === 'game') {
+                document.getElementById('gameView').classList.remove('hidden');
+                document.getElementById('gameBtn').classList.add('bg-blue-600', 'text-white');
+                document.getElementById('gameBtn').classList.remove('bg-gray-200', 'text-gray-700');
+            }
+        }
+
+        // Player Management
+        function addPlayer() {
+            const name = document.getElementById('playerName').value.trim();
+            const number = document.getElementById('playerNumber').value.trim();
+            
+            if (!name || !number) {
+                alert('Please enter both name and number');
+                return;
+            }
+            
+            players.push({
+                id: Date.now(),
+                name: name,
+                number: parseInt(number)
+            });
+            
+            document.getElementById('playerName').value = '';
+            document.getElementById('playerNumber').value = '';
+            
+            saveData();
+            renderPlayers();
+        }
+
+        function deletePlayer(id) {
+            if (confirm('Are you sure you want to delete this player?')) {
+                players = players.filter(p => p.id !== id);
+                saveData();
+                renderPlayers();
+            }
+        }
+
+        function renderPlayers() {
+            const list = document.getElementById('playersList');
+            
+            if (players.length === 0) {
+                list.innerHTML = '<p class="text-gray-500 text-center py-4">No players added yet</p>';
+                return;
+            }
+            
+            list.innerHTML = players.sort((a, b) => a.number - b.number).map(player => `
+                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+                    <div class="flex items-center gap-4">
+                        <span class="text-2xl font-bold text-blue-600 w-12">#${player.number}</span>
+                        <span class="text-lg font-semibold text-gray-800">${player.name}</span>
+                    </div>
+                    <button onclick="deletePlayer(${player.id})" 
+                            class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition">
+                        Delete
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // Game Management
+        function createGame() {
+            const name = document.getElementById('gameName').value.trim();
+            
+            if (!name) {
+                alert('Please enter a game name');
+                return;
+            }
+            
+            const game = {
+                id: Date.now(),
+                name: name,
+                date: new Date().toISOString(),
+                players: players.map(p => ({
+                    ...p,
+                    playTime: 0,
+                    subs: 0,
+                    isPlaying: false
+                }))
+            };
+            
+            games.push(game);
+            document.getElementById('gameName').value = '';
+            
+            saveData();
+            renderGames();
+            selectGame(game.id);
+        }
+
+        function selectGame(id) {
+            currentGame = games.find(g => g.id === id);
+            
+            // Clear all timers
+            Object.values(timers).forEach(timer => clearInterval(timer.interval));
+            timers = {};
+            
+            renderActiveGame();
+        }
+
+        function endGame() {
+            if (confirm('End this game? All timers will be saved.')) {
+                // Stop all timers
+                Object.values(timers).forEach(timer => {
+                    if (timer.interval) clearInterval(timer.interval);
+                });
+                timers = {};
+                
+                currentGame = null;
+                document.getElementById('activeGame').classList.add('hidden');
+                saveData();
+            }
+        }
+
+        function renderGames() {
+            const list = document.getElementById('gamesList');
+            
+            if (games.length === 0) {
+                list.innerHTML = '<p class="text-gray-500 text-center py-4">No games created yet</p>';
+                return;
+            }
+            
+            list.innerHTML = games.slice().reverse().map(game => `
+                <div onclick="selectGame(${game.id})" 
+                     class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-blue-50 cursor-pointer transition border-2 ${currentGame && currentGame.id === game.id ? 'border-blue-500' : 'border-transparent'}">
+                    <div>
+                        <span class="text-lg font-semibold text-gray-800">${game.name}</span>
+                        <span class="text-sm text-gray-500 ml-3">${new Date(game.date).toLocaleDateString()}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderActiveGame() {
+            if (!currentGame) return;
+            
+            document.getElementById('activeGame').classList.remove('hidden');
+            document.getElementById('currentGameName').textContent = currentGame.name;
+            
+            const list = document.getElementById('gamePlayers');
+            list.innerHTML = currentGame.players.sort((a, b) => a.number - b.number).map(player => {
+                const minutes = Math.floor(player.playTime / 60);
+                const seconds = player.playTime % 60;
+                const timeDisplay = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                
+                return `
+                    <div class="p-4 bg-gray-50 rounded-lg border-2 ${player.isPlaying ? 'border-green-500 bg-green-50' : 'border-gray-200'}">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-4">
+                                <span class="text-xl font-bold ${player.isPlaying ? 'text-green-600' : 'text-gray-600'} w-10">#${player.number}</span>
+                                <span class="text-lg font-semibold text-gray-800">${player.name}</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <div class="text-right">
+                                    <div class="text-2xl font-mono font-bold ${player.isPlaying ? 'text-green-600' : 'text-gray-800'}" id="timer-${player.id}">${timeDisplay}</div>
+                                    <div class="text-sm text-gray-500">Subs: ${player.subs}</div>
+                                </div>
+                                <button onclick="togglePlayer(${player.id})" 
+                                        class="px-6 py-3 ${player.isPlaying ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'} text-white rounded-lg font-semibold transition">
+                                    ${player.isPlaying ? 'Sub Out' : 'Sub In'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function togglePlayer(playerId) {
+            const player = currentGame.players.find(p => p.id === playerId);
+            
+            if (player.isPlaying) {
+                // Sub out
+                player.isPlaying = false;
+                if (timers[playerId]) {
+                    clearInterval(timers[playerId].interval);
+                    delete timers[playerId];
+                }
+            } else {
+                // Sub in
+                player.isPlaying = true;
+                player.subs++;
+                
+                timers[playerId] = {
+                    interval: setInterval(() => {
+                        player.playTime++;
+                        const minutes = Math.floor(player.playTime / 60);
+                        const seconds = player.playTime % 60;
+                        const timeDisplay = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                        document.getElementById(`timer-${playerId}`).textContent = timeDisplay;
+                        saveData();
+                    }, 1000)
+                };
+            }
+            
+            saveData();
+            renderActiveGame();
+        }
+
+        // Initialize
+        loadData();
+    </script>
+</body>
+</html>
