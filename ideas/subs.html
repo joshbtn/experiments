@@ -723,12 +723,7 @@
                 gameTime++;
                 updateGameTimerDisplay();
                 
-                // Update goalie time for current goalie
                 if (currentGame) {
-                    const currentGoalie = currentGame.players.find(p => p.isGoalie);
-                    if (currentGoalie) {
-                        currentGoalie.goalieTime = (currentGoalie.goalieTime || 0) + 1;
-                    }
                     currentGame.gameTime = gameTime;
                     saveData();
                 }
