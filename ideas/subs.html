@@ -7,21 +7,21 @@
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 min-h-screen">
-    <div id="app" class="container mx-auto px-4 py-8 max-w-4xl">
+    <div id="app" class="container mx-auto px-2 sm:px-4 py-4 sm:py-8 max-w-4xl">
         <!-- Header -->
-        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
-            <div class="flex justify-between items-start mb-4">
+        <div class="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-4 sm:mb-6">
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 mb-4">
                 <div>
-                    <h1 class="text-3xl font-bold text-gray-800 mb-2">Team Substitution Tracker</h1>
-                    <p class="text-gray-600">Manage players, track game time, and monitor substitutions</p>
+                    <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">Team Substitution Tracker</h1>
+                    <p class="text-sm sm:text-base text-gray-600">Manage players, track game time, and monitor substitutions</p>
                 </div>
                 <div class="flex gap-2">
                     <button onclick="exportData()" 
-                            class="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition text-sm">
+                            class="flex-1 sm:flex-none px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition text-xs sm:text-sm">
                         📥 Export
                     </button>
                     <button onclick="document.getElementById('importFile').click()" 
-                            class="px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition text-sm">
+                            class="flex-1 sm:flex-none px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition text-xs sm:text-sm">
                         📤 Import
                     </button>
                     <input type="file" id="importFile" accept=".json" onchange="importData(event)" class="hidden">
@@ -30,31 +30,31 @@
         </div>
 
         <!-- Navigation -->
-        <div class="flex gap-4 mb-6">
-            <button onclick="showView('teams')" id="teamsBtn" class="flex-1 py-3 px-6 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition">
+        <div class="flex gap-2 sm:gap-4 mb-4 sm:mb-6">
+            <button onclick="showView('teams')" id="teamsBtn" class="flex-1 py-2 sm:py-3 px-2 sm:px-6 bg-blue-600 text-white rounded-lg text-sm sm:text-base font-semibold hover:bg-blue-700 transition">
                 Teams
             </button>
-            <button onclick="showView('roster')" id="rosterBtn" class="flex-1 py-3 px-6 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition">
-                Team Roster
+            <button onclick="showView('roster')" id="rosterBtn" class="flex-1 py-2 sm:py-3 px-2 sm:px-6 bg-gray-200 text-gray-700 rounded-lg text-sm sm:text-base font-semibold hover:bg-gray-300 transition">
+                <span class="hidden sm:inline">Team </span>Roster
             </button>
-            <button onclick="showView('game')" id="gameBtn" class="flex-1 py-3 px-6 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition">
-                Game View
+            <button onclick="showView('game')" id="gameBtn" class="flex-1 py-2 sm:py-3 px-2 sm:px-6 bg-gray-200 text-gray-700 rounded-lg text-sm sm:text-base font-semibold hover:bg-gray-300 transition">
+                Game<span class="hidden sm:inline"> View</span>
             </button>
         </div>
 
         <!-- Teams Management View -->
-        <div id="teamsView" class="bg-white rounded-lg shadow-lg p-6">
-            <h2 class="text-2xl font-bold text-gray-800 mb-4">Teams</h2>
+        <div id="teamsView" class="bg-white rounded-lg shadow-lg p-4 sm:p-6">
+            <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-4">Teams</h2>
             
             <!-- Add Team Form -->
-            <div class="bg-gray-50 p-4 rounded-lg mb-6">
-                <h3 class="text-lg font-semibold mb-3">Create New Team</h3>
-                <div class="flex gap-3">
+            <div class="bg-gray-50 p-3 sm:p-4 rounded-lg mb-4 sm:mb-6">
+                <h3 class="text-base sm:text-lg font-semibold mb-3">Create New Team</h3>
+                <div class="flex flex-col sm:flex-row gap-2 sm:gap-3">
                     <input type="text" id="teamName" placeholder="Team Name" 
-                           class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                           class="flex-1 px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base">
                     <button onclick="addTeam()" 
-                            class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition">
-                        Create
+                            class="px-4 sm:px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition text-sm sm:text-base whitespace-nowrap">
+                        Create Team
                     </button>
                 </div>
             </div>
@@ -67,26 +67,26 @@
 
         <!-- Team Roster View -->
         <div id="rosterView" class="hidden">
-            <div id="noTeamSelected" class="bg-yellow-100 border-l-4 border-yellow-500 p-4 mb-6">
-                <p class="text-yellow-700">Please select a team first from the Teams tab</p>
+            <div id="noTeamSelected" class="bg-yellow-100 border-l-4 border-yellow-500 p-3 sm:p-4 mb-4 sm:mb-6 rounded">
+                <p class="text-sm sm:text-base text-yellow-700">Please select a team first from the Teams tab</p>
             </div>
             
-            <div id="rosterContent" class="bg-white rounded-lg shadow-lg p-6 hidden">
+            <div id="rosterContent" class="bg-white rounded-lg shadow-lg p-4 sm:p-6 hidden">
                 <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-2xl font-bold text-gray-800"><span id="currentTeamName"></span> Roster</h2>
+                    <h2 class="text-xl sm:text-2xl font-bold text-gray-800"><span id="currentTeamName"></span> Roster</h2>
                 </div>
             
                 <!-- Add Player Form -->
-                <div class="bg-gray-50 p-4 rounded-lg mb-6">
-                    <h3 class="text-lg font-semibold mb-3">Add New Player</h3>
-                    <div class="flex gap-3">
+                <div class="bg-gray-50 p-3 sm:p-4 rounded-lg mb-4 sm:mb-6">
+                    <h3 class="text-base sm:text-lg font-semibold mb-3">Add New Player</h3>
+                    <div class="flex flex-col sm:flex-row gap-2 sm:gap-3">
                         <input type="text" id="playerName" placeholder="Player Name" 
-                               class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                        <input type="number" id="playerNumber" placeholder="Number" 
-                               class="w-24 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                               class="flex-1 px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base">
+                        <input type="number" id="playerNumber" placeholder="#" 
+                               class="w-20 sm:w-24 px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base">
                         <button onclick="addPlayer()" 
-                                class="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition">
-                            Add
+                                class="px-4 sm:px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition text-sm sm:text-base whitespace-nowrap">
+                            Add Player
                         </button>
                     </div>
                 </div>
@@ -101,16 +101,16 @@
         <!-- Game View -->
         <div id="gameView" class="hidden">
             <!-- Game Selection -->
-            <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
-                <h2 class="text-2xl font-bold text-gray-800 mb-4">Game Management</h2>
+            <div class="bg-white rounded-lg shadow-lg p-4 sm:p-6 mb-4 sm:mb-6">
+                <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-4">Game Management</h2>
                 
                 <!-- Create New Game -->
-                <div class="bg-gray-50 p-4 rounded-lg mb-4">
-                    <div class="flex gap-3">
+                <div class="bg-gray-50 p-3 sm:p-4 rounded-lg mb-4">
+                    <div class="flex flex-col sm:flex-row gap-2 sm:gap-3">
                         <input type="text" id="gameName" placeholder="Game Name (e.g., vs Eagles)" 
-                               class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                               class="flex-1 px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base">
                         <button onclick="createGame()" 
-                                class="px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition">
+                                class="px-4 sm:px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition text-sm sm:text-base whitespace-nowrap">
                             New Game
                         </button>
                     </div>
@@ -124,11 +124,11 @@
 
             <!-- Active Game View -->
             <div id="activeGame" class="hidden">
-                <div class="bg-white rounded-lg shadow-lg p-6">
-                    <div class="flex justify-between items-center mb-6">
-                        <h2 class="text-2xl font-bold text-gray-800" id="currentGameName"></h2>
+                <div class="bg-white rounded-lg shadow-lg p-4 sm:p-6">
+                    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4 sm:mb-6">
+                        <h2 class="text-lg sm:text-2xl font-bold text-gray-800" id="currentGameName"></h2>
                         <button onclick="endGame()" 
-                                class="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition">
+                                class="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition text-sm sm:text-base whitespace-nowrap">
                             End Game
                         </button>
                     </div>
@@ -265,16 +265,16 @@
             }
             
             list.innerHTML = teams.map(team => `
-                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition border-2 ${currentTeam && currentTeam.id === team.id ? 'border-blue-500' : 'border-transparent'}">
-                    <div class="flex items-center gap-4 flex-1" onclick="selectTeam(${team.id})" style="cursor: pointer;">
-                        <span class="text-xl font-bold text-blue-600">🏆</span>
+                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0 p-3 sm:p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition border-2 ${currentTeam && currentTeam.id === team.id ? 'border-blue-500' : 'border-transparent'}">
+                    <div class="flex items-center gap-3 sm:gap-4 flex-1" onclick="selectTeam(${team.id})" style="cursor: pointer;">
+                        <span class="text-lg sm:text-xl font-bold text-blue-600">🏆</span>
                         <div>
-                            <span class="text-lg font-semibold text-gray-800">${team.name}</span>
-                            <span class="text-sm text-gray-500 ml-3">${team.players.length} players</span>
+                            <span class="text-base sm:text-lg font-semibold text-gray-800">${team.name}</span>
+                            <span class="text-xs sm:text-sm text-gray-500 ml-2 sm:ml-3">${team.players.length} players</span>
                         </div>
                     </div>
                     <button onclick="event.stopPropagation(); deleteTeam(${team.id})" 
-                            class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition">
+                            class="px-3 sm:px-4 py-1.5 sm:py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition text-sm sm:text-base self-end sm:self-auto">
                         Delete
                     </button>
                 </div>
@@ -337,16 +337,15 @@
             }
             
             list.innerHTML = currentTeam.players.sort((a, b) => a.number - b.number).map(player => `
-                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
-                    <div class="flex items-center gap-4">
-                        <span class="text-2xl font-bold text-blue-600 w-12">#${player.number}</span>
-                        <span class="text-lg font-semibold text-gray-800">${player.name}</span>
+                <div class="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+                    <div class="flex items-center gap-2 sm:gap-4">
+                        <span class="text-xl sm:text-2xl font-bold text-blue-600 w-10 sm:w-12">#${player.number}</span>
+                        <span class="text-base sm:text-lg font-semibold text-gray-800">${player.name}</span>
                     </div>
                     <button onclick="deletePlayer(${player.id})" 
-                            class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition">
+                            class="px-3 sm:px-4 py-1.5 sm:py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition text-sm sm:text-base">
                         Delete
                     </button>
-                </div>
                 </div>
             `).join('');
         }
@@ -426,11 +425,13 @@
             
             list.innerHTML = games.slice().reverse().map(game => `
                 <div onclick="selectGame(${game.id})" 
-                     class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-blue-50 cursor-pointer transition border-2 ${currentGame && currentGame.id === game.id ? 'border-blue-500' : 'border-transparent'}">
+                     class="flex flex-col sm:flex-row sm:items-center justify-between gap-1 p-3 sm:p-4 bg-gray-50 rounded-lg hover:bg-blue-50 cursor-pointer transition border-2 ${currentGame && currentGame.id === game.id ? 'border-blue-500' : 'border-transparent'}">
                     <div>
-                        <span class="text-lg font-semibold text-gray-800">${game.name}</span>
-                        <span class="text-sm text-gray-500 ml-3">${game.teamName || 'Unknown Team'}</span>
-                        <span class="text-sm text-gray-500 ml-2">${new Date(game.date).toLocaleDateString()}</span>
+                        <div class="text-base sm:text-lg font-semibold text-gray-800">${game.name}</div>
+                        <div class="text-xs sm:text-sm text-gray-500">
+                            <span>${game.teamName || 'Unknown Team'}</span>
+                            <span class="ml-2">${new Date(game.date).toLocaleDateString()}</span>
+                        </div>
                     </div>
                 </div>
             `).join('');
@@ -449,19 +450,19 @@
                 const timeDisplay = `${minutes}:${seconds.toString().padStart(2, '0')}`;
                 
                 return `
-                    <div class="p-4 bg-gray-50 rounded-lg border-2 ${player.isPlaying ? 'border-green-500 bg-green-50' : 'border-gray-200'}">
-                        <div class="flex items-center justify-between mb-3">
-                            <div class="flex items-center gap-4">
-                                <span class="text-xl font-bold ${player.isPlaying ? 'text-green-600' : 'text-gray-600'} w-10">#${player.number}</span>
-                                <span class="text-lg font-semibold text-gray-800">${player.name}</span>
+                    <div class="p-3 sm:p-4 bg-gray-50 rounded-lg border-2 ${player.isPlaying ? 'border-green-500 bg-green-50' : 'border-gray-200'}">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div class="flex items-center gap-2 sm:gap-4">
+                                <span class="text-lg sm:text-xl font-bold ${player.isPlaying ? 'text-green-600' : 'text-gray-600'} w-8 sm:w-10">#${player.number}</span>
+                                <span class="text-base sm:text-lg font-semibold text-gray-800">${player.name}</span>
                             </div>
-                            <div class="flex items-center gap-3">
-                                <div class="text-right">
-                                    <div class="text-2xl font-mono font-bold ${player.isPlaying ? 'text-green-600' : 'text-gray-800'}" id="timer-${player.id}">${timeDisplay}</div>
-                                    <div class="text-sm text-gray-500">Subs: ${player.subs}</div>
+                            <div class="flex items-center justify-between sm:justify-end gap-3">
+                                <div class="text-left sm:text-right">
+                                    <div class="text-xl sm:text-2xl font-mono font-bold ${player.isPlaying ? 'text-green-600' : 'text-gray-800'}" id="timer-${player.id}">${timeDisplay}</div>
+                                    <div class="text-xs sm:text-sm text-gray-500">Subs: ${player.subs}</div>
                                 </div>
                                 <button onclick="togglePlayer(${player.id})" 
-                                        class="px-6 py-3 ${player.isPlaying ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'} text-white rounded-lg font-semibold transition">
+                                        class="px-4 sm:px-6 py-2 sm:py-3 ${player.isPlaying ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'} text-white rounded-lg font-semibold transition text-sm sm:text-base whitespace-nowrap">
                                     ${player.isPlaying ? 'Sub Out' : 'Sub In'}
                                 </button>
                             </div>
