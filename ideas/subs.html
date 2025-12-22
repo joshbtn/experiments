@@ -429,7 +429,8 @@
                      class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-blue-50 cursor-pointer transition border-2 ${currentGame && currentGame.id === game.id ? 'border-blue-500' : 'border-transparent'}">
                     <div>
                         <span class="text-lg font-semibold text-gray-800">${game.name}</span>
-                        <span class="text-sm text-gray-500 ml-3">${new Date(game.date).toLocaleDateString()}</span>
+                        <span class="text-sm text-gray-500 ml-3">${game.teamName || 'Unknown Team'}</span>
+                        <span class="text-sm text-gray-500 ml-2">${new Date(game.date).toLocaleDateString()}</span>
                     </div>
                 </div>
             `).join('');
@@ -439,7 +440,7 @@
             if (!currentGame) return;
             
             document.getElementById('activeGame').classList.remove('hidden');
-            document.getElementById('currentGameName').textContent = currentGame.name;
+            document.getElementById('currentGameName').textContent = `${currentGame.teamName || 'Team'} - ${currentGame.name}`;
             
             const list = document.getElementById('gamePlayers');
             list.innerHTML = currentGame.players.sort((a, b) => a.number - b.number).map(player => {
@@ -504,10 +505,10 @@
         // Export and Import Functions
         function exportData() {
             const exportObj = {
-                players: players,
+                teams: teams,
                 games: games,
                 exportDate: new Date().toISOString(),
-                version: '1.0'
+                version: '2.0'
             };
             
             const dataStr = JSON.stringify(exportObj, null, 2);
@@ -531,37 +532,68 @@
                 try {
                     const importObj = JSON.parse(e.target.result);
                     
-                    if (!importObj.players || !importObj.games) {
-                        alert('Invalid data format');
-                        return;
-                    }
-                    
-                    if (players.length > 0 || games.length > 0) {
-                        if (!confirm('This will replace all existing data. Continue?')) {
+                    // Support both old format (v1.0) and new format (v2.0)
+                    if (importObj.version === '2.0') {
+                        if (!importObj.teams || !importObj.games) {
+                            alert('Invalid data format');
                             return;
                         }
+                        
+                        if (teams.length > 0 || games.length > 0) {
+                            if (!confirm('This will replace all existing data. Continue?')) {
+                                return;
+                            }
+                        }
+                        
+                        teams = importObj.teams;
+                        games = importObj.games;
+                    } else {
+                        // Convert v1.0 format to v2.0
+                        if (!importObj.players || !importObj.games) {
+                            alert('Invalid data format');
+                            return;
+                        }
+                        
+                        if (teams.length > 0 || games.length > 0) {
+                            if (!confirm('This will import old format data and create a new team. Continue?')) {
+                                return;
+                            }
+                        }
+                        
+                        // Create a team from old data
+                        const newTeam = {
+                            id: Date.now(),
+                            name: 'Imported Team',
+                            players: importObj.players
+                        };
+                        teams.push(newTeam);
+                        
+                        // Update games to reference the new team
+                        games = importObj.games.map(game => ({
+                            ...game,
+                            teamId: newTeam.id,
+                            teamName: newTeam.name
+                        }));
                     }
                     
-                    players = importObj.players;
-                    games = importObj.games;
-                    
                     // Clear current game state
+                    currentTeam = null;
                     currentGame = null;
                     Object.values(timers).forEach(timer => clearInterval(timer.interval));
                     timers = {};
                     
                     saveData();
+                    renderTeams();
                     renderPlayers();
                     renderGames();
                     
                     if (document.getElementById('gameView').classList.contains('hidden')) {
-                        // If on team view, just render
+                        showView('teams');
                     } else {
-                        // If on game view, hide active game
                         document.getElementById('activeGame').classList.add('hidden');
                     }
                     
-                    alert(`Successfully imported ${players.length} players and ${games.length} games`);
+                    alert(`Successfully imported ${teams.length} team(s) and ${games.length} game(s)`);
                 } catch (error) {
                     alert('Error importing data: ' + error.message);
                 }
