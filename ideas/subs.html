@@ -529,13 +529,14 @@
                             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                 <div class="flex items-center gap-2 sm:gap-4">
                                     <span class="text-lg sm:text-xl font-bold ${!isPresent ? 'text-gray-400' : player.isPlaying ? 'text-green-600' : 'text-gray-600'} w-8 sm:w-10">#${player.number}</span>
-                                    <div class="flex flex-col">
+                                    <div class="flex flex-col gap-1">
                                         <div class="flex items-center gap-2 flex-wrap">
                                             <span class="text-base sm:text-lg font-semibold ${!isPresent ? 'text-gray-500 line-through' : 'text-gray-800'}">${player.name}</span>
-                                            ${goalieShifts > 0 ? `<span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-semibold">G×${goalieShifts}</span>` : ''}
-                                            ${isGoalie ? '<span class="text-xs bg-blue-500 text-white px-2 py-0.5 rounded font-semibold">🥅 IN GOAL</span>' : ''}
+                                            ${goalieShifts > 0 ? `<span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">G</span>` : ''}
+                                            ${isGoalie ? '<span class="text-xs bg-blue-500 text-white px-2 py-0.5 rounded font-semibold">🥅 GOALIE</span>' : ''}
                                             ${!isPresent ? '<span class="text-xs bg-gray-400 text-white px-2 py-0.5 rounded font-semibold">ABSENT</span>' : ''}
                                         </div>
+                                        ${goalieShifts > 0 ? `<div class="text-xs text-blue-600 font-medium">Goal Time: <span id="goalie-timer-${player.id}" class="font-mono font-bold">${goalieTimeDisplay}</span></div>` : ''}
                                     </div>
                                 </div>
                                 <div class="flex items-center justify-between sm:justify-end gap-3">
@@ -543,7 +544,6 @@
                                         <div class="text-xl sm:text-2xl font-mono font-bold ${!isPresent ? 'text-gray-400' : player.isPlaying ? 'text-green-600' : 'text-gray-800'}" id="timer-${player.id}">${timeDisplay}</div>
                                         <div class="text-xs sm:text-sm text-gray-500">
                                             <span>Subs: ${player.subs}</span>
-                                            ${goalieShifts > 0 ? ` | <span class="text-blue-600 font-semibold">Goal: ${goalieTimeDisplay}</span>` : ''}
                                         </div>
                                     </div>
                                     <button onclick="togglePlayer(${player.id})" 
@@ -590,11 +590,17 @@
                     clearInterval(timers[playerId].interval);
                     delete timers[playerId];
                 }
+                // Stop goalie timer if they were goalie
+                if (timers[`goalie-${playerId}`]) {
+                    clearInterval(timers[`goalie-${playerId}`].interval);
+                    delete timers[`goalie-${playerId}`];
+                }
             } else {
                 // Sub in
                 player.isPlaying = true;
                 player.subs++;
                 
+                // Start regular play timer
                 timers[playerId] = {
                     interval: setInterval(() => {
                         player.playTime++;
@@ -605,6 +611,24 @@
                         saveData();
                     }, 1000)
                 };
+                
+                // If they're the goalie, start goalie timer and increment shifts
+                if (player.isGoalie) {
+                    player.goalieShifts = (player.goalieShifts || 0) + 1;
+                    timers[`goalie-${playerId}`] = {
+                        interval: setInterval(() => {
+                            player.goalieTime = (player.goalieTime || 0) + 1;
+                            const goalieMinutes = Math.floor(player.goalieTime / 60);
+                            const goalieSeconds = player.goalieTime % 60;
+                            const goalieTimeDisplay = `${goalieMinutes}:${goalieSeconds.toString().padStart(2, '0')}`;
+                            const goalieTimerEl = document.getElementById(`goalie-timer-${playerId}`);
+                            if (goalieTimerEl) {
+                                goalieTimerEl.textContent = goalieTimeDisplay;
+                            }
+                            saveData();
+                        }, 1000)
+                    };
+                }
             }
             
             saveData();
@@ -614,11 +638,6 @@
         function toggleGoalie(playerId) {
             const player = currentGame.players.find(p => p.id === playerId);
             
-            if (!isGameRunning) {
-                alert('Please start the game timer before assigning goalie positions.');
-                return;
-            }
-            
             // If setting this player as goalie, remove goalie status from all others
             if (!player.isGoalie) {
                 currentGame.players.forEach(p => {
@@ -627,7 +646,6 @@
                     }
                 });
                 player.isGoalie = true;
-                player.goalieShifts = (player.goalieShifts || 0) + 1;
             } else {
                 player.isGoalie = false;
             }
