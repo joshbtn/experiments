@@ -347,93 +347,22 @@
                         Delete
                     </button>
                 </div>
-            `).join('');
-        }
-            renderGames();
-        }
-
-        // Save data to localStorage
-        function saveData() {
-            localStorage.setItem('players', JSON.stringify(players));
-            localStorage.setItem('games', JSON.stringify(games));
-        }
-
-        // View Management
-        function showView(view) {
-            document.getElementById('teamView').classList.add('hidden');
-            document.getElementById('gameView').classList.add('hidden');
-            
-            document.getElementById('teamBtn').classList.remove('bg-blue-600', 'text-white');
-            document.getElementById('teamBtn').classList.add('bg-gray-200', 'text-gray-700');
-            document.getElementById('gameBtn').classList.remove('bg-blue-600', 'text-white');
-            document.getElementById('gameBtn').classList.add('bg-gray-200', 'text-gray-700');
-            
-            if (view === 'team') {
-                document.getElementById('teamView').classList.remove('hidden');
-                document.getElementById('teamBtn').classList.add('bg-blue-600', 'text-white');
-                document.getElementById('teamBtn').classList.remove('bg-gray-200', 'text-gray-700');
-            } else if (view === 'game') {
-                document.getElementById('gameView').classList.remove('hidden');
-                document.getElementById('gameBtn').classList.add('bg-blue-600', 'text-white');
-                document.getElementById('gameBtn').classList.remove('bg-gray-200', 'text-gray-700');
-            }
-        }
-
-        // Player Management
-        function addPlayer() {
-            const name = document.getElementById('playerName').value.trim();
-            const number = document.getElementById('playerNumber').value.trim();
-            
-            if (!name || !number) {
-                alert('Please enter both name and number');
-                return;
-            }
-            
-            players.push({
-                id: Date.now(),
-                name: name,
-                number: parseInt(number)
-            });
-            
-            document.getElementById('playerName').value = '';
-            document.getElementById('playerNumber').value = '';
-            
-            saveData();
-            renderPlayers();
-        }
-
-        function deletePlayer(id) {
-            if (confirm('Are you sure you want to delete this player?')) {
-                players = players.filter(p => p.id !== id);
-                saveData();
-                renderPlayers();
-            }
-        }
-
-        function renderPlayers() {
-            const list = document.getElementById('playersList');
-            
-            if (players.length === 0) {
-                list.innerHTML = '<p class="text-gray-500 text-center py-4">No players added yet</p>';
-                return;
-            }
-            
-            list.innerHTML = players.sort((a, b) => a.number - b.number).map(player => `
-                <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
-                    <div class="flex items-center gap-4">
-                        <span class="text-2xl font-bold text-blue-600 w-12">#${player.number}</span>
-                        <span class="text-lg font-semibold text-gray-800">${player.name}</span>
-                    </div>
-                    <button onclick="deletePlayer(${player.id})" 
-                            class="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition">
-                        Delete
-                    </button>
                 </div>
             `).join('');
         }
 
         // Game Management
         function createGame() {
+            if (!currentTeam) {
+                alert('Please select a team first');
+                return;
+            }
+            
+            if (currentTeam.players.length === 0) {
+                alert('Please add players to your team first');
+                return;
+            }
+            
             const name = document.getElementById('gameName').value.trim();
             
             if (!name) {
@@ -445,7 +374,9 @@
                 id: Date.now(),
                 name: name,
                 date: new Date().toISOString(),
-                players: players.map(p => ({
+                teamId: currentTeam.id,
+                teamName: currentTeam.name,
+                players: currentTeam.players.map(p => ({
                     ...p,
                     playTime: 0,
                     subs: 0,
