@@ -597,6 +597,25 @@
                 }
             } else {
                 // Sub in
+                
+                // If subbing in a goalie, automatically sub out any other player who was playing goalie
+                if (player.isGoalie) {
+                    currentGame.players.forEach(otherPlayer => {
+                        if (otherPlayer.id !== playerId && otherPlayer.isPlaying && otherPlayer.goalieShifts > 0) {
+                            // Sub out the previous goalie
+                            otherPlayer.isPlaying = false;
+                            if (timers[otherPlayer.id]) {
+                                clearInterval(timers[otherPlayer.id].interval);
+                                delete timers[otherPlayer.id];
+                            }
+                            if (timers[`goalie-${otherPlayer.id}`]) {
+                                clearInterval(timers[`goalie-${otherPlayer.id}`].interval);
+                                delete timers[`goalie-${otherPlayer.id}`];
+                            }
+                        }
+                    });
+                }
+                
                 player.isPlaying = true;
                 player.subs++;
                 
