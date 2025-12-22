@@ -704,13 +704,20 @@
         }
 
         function resetAllTimers() {
-            if (!confirm('Reset all player timers and substitution counts? This cannot be undone.')) {
+            if (!confirm('Reset all player timers, substitution counts, and game timer? This cannot be undone.')) {
                 return;
             }
             
-            // Stop all running timers
-            Object.values(timers).forEach(timer => clearInterval(timer.interval));
+            // Stop all running timers (player timers and goalie timers)
+            Object.keys(timers).forEach(key => {
+                if (timers[key] && timers[key].interval) {
+                    clearInterval(timers[key].interval);
+                }
+            });
             timers = {};
+            
+            // Stop game timer
+            stopGameTimer();
             
             // Reset all player stats
             currentGame.players.forEach(player => {
@@ -720,13 +727,15 @@
                 player.isGoalie = false;
                 player.goalieTime = 0;
                 player.goalieShifts = 0;
+                player.isPresent = true;
             });
             
             // Reset game timer
-            stopGameTimer();
             gameTime = 0;
+            currentGame.gameTime = 0;
             updateGameTimerDisplay();
             
+            // Save the fresh state
             saveData();
             renderActiveGame();
         }
