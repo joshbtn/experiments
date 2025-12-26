@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Drummer Metronome</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            touch-action: manipulation;
+        }
+
+        .visual-flash {
+            transition: background-color 0.05s ease-out;
+        }
+
+        .flash-active {
+            background-color: #38bdf8 !important;
+            box-shadow: 0 0 40px #38bdf8;
+        }
+
+        .flash-accent {
+            background-color: #f43f5e !important;
+            box-shadow: 0 0 40px #f43f5e;
+        }
+
+        input[type=range] {
+            height: 38px;
+            -webkit-appearance: none;
+            margin: 10px 0;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]:focus {
+            outline: none;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 8px;
+            cursor: pointer;
+            animate: 0.2s;
+            background: #334155;
+            border-radius: 4px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            height: 24px;
+            width: 24px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -8px;
+        }
+
+        .tap-btn {
+            background: rgba(56, 189, 248, 0.1);
+            border: 2px solid #38bdf8;
+        }
+        .tap-btn:active {
+            background: #38bdf8;
+            color: #0f172a;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div class="max-w-md w-full bg-slate-900 rounded-3xl p-8 shadow-2xl border border-slate-800">
+        <!-- Visual Beat Indicator -->
+        <div id="flash-container" class="w-full h-32 rounded-2xl bg-slate-800 mb-8 flex items-center justify-center visual-flash">
+            <span id="beat-display" class="text-5xl font-extrabold opacity-50">1</span>
+        </div>
+
+        <!-- BPM Display -->
+        <div class="text-center mb-8">
+            <div class="text-slate-400 uppercase tracking-widest text-xs font-bold mb-1">Tempo</div>
+            <div class="flex items-center justify-center gap-4">
+                <button id="bpm-minus" class="w-12 h-12 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-2xl font-bold">-</button>
+                <div id="bpm-text" class="text-7xl font-black tabular-nums">120</div>
+                <button id="bpm-plus" class="w-12 h-12 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-2xl font-bold">+</button>
+            </div>
+            <div id="tempo-name" class="text-sky-400 font-semibold mt-2">Moderato</div>
+        </div>
+
+        <!-- Controls -->
+        <div class="space-y-6">
+            <!-- BPM Slider -->
+            <input type="range" id="bpm-slider" min="30" max="280" value="120">
+
+            <div class="grid grid-cols-2 gap-4">
+                <!-- Time Signature -->
+                <div class="bg-slate-800 p-4 rounded-xl">
+                    <label class="text-[10px] uppercase text-slate-400 font-bold block mb-1">Signature</label>
+                    <select id="time-sig" class="bg-transparent w-full font-bold outline-none cursor-pointer">
+                        <option value="2">2 / 4</option>
+                        <option value="3">3 / 4</option>
+                        <option value="4" selected>4 / 4</option>
+                        <option value="5">5 / 4</option>
+                        <option value="6">6 / 8</option>
+                        <option value="7">7 / 8</option>
+                        <option value="12">12 / 8</option>
+                    </select>
+                </div>
+
+                <!-- Accent Toggle -->
+                <div class="bg-slate-800 p-4 rounded-xl flex flex-col justify-between">
+                    <label class="text-[10px] uppercase text-slate-400 font-bold block mb-1">Downbeat Accent</label>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="accent-toggle" checked class="w-5 h-5 accent-sky-500">
+                        <span class="text-sm font-bold">Enabled</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Volume/Sound -->
+            <div class="bg-slate-800 p-4 rounded-xl">
+                 <label class="text-[10px] uppercase text-slate-400 font-bold block mb-2 text-center">Volume</label>
+                 <input type="range" id="volume-slider" min="0" max="1" step="0.1" value="0.7">
+            </div>
+
+            <!-- Play & Tap -->
+            <div class="flex flex-col gap-4">
+                <button id="play-btn" class="w-full py-6 bg-sky-500 hover:bg-sky-400 text-slate-900 text-2xl font-black rounded-2xl transition-all uppercase tracking-widest shadow-lg shadow-sky-500/20">
+                    Start
+                </button>
+                <button id="tap-btn" class="w-full py-4 tap-btn text-sky-400 font-bold rounded-2xl uppercase tracking-widest text-sm transition-all">
+                    Tap Tempo
+                </button>
+            </div>
+        </div>
+
+        <div class="mt-8 text-center text-slate-500 text-[10px] uppercase tracking-widest">
+            Pro Drummer Metronome v1.0
+        </div>
+    </div>
+
+    <script>
+        // Audio Context Setup
+        let audioContext = null;
+        let nextNoteTime = 0.0;
+        let timerID = null;
+        let isPlaying = false;
+        let currentBeat = 0;
+        
+        // State
+        let bpm = 120;
+        let timeSignature = 4;
+        let accentEnabled = true;
+        let volume = 0.7;
+
+        // Elements
+        const playBtn = document.getElementById('play-btn');
+        const bpmText = document.getElementById('bpm-text');
+        const bpmSlider = document.getElementById('bpm-slider');
+        const bpmPlus = document.getElementById('bpm-plus');
+        const bpmMinus = document.getElementById('bpm-minus');
+        const timeSigSelect = document.getElementById('time-sig');
+        const accentToggle = document.getElementById('accent-toggle');
+        const volumeSlider = document.getElementById('volume-slider');
+        const flashContainer = document.getElementById('flash-container');
+        const beatDisplay = document.getElementById('beat-display');
+        const tapBtn = document.getElementById('tap-btn');
+        const tempoName = document.getElementById('tempo-name');
+
+        const TEMPO_NAMES = [
+            { max: 40, name: "Grave" },
+            { max: 45, name: "Largo" },
+            { max: 50, name: "Lento" },
+            { max: 55, name: "Adagio" },
+            { max: 65, name: "Adagietto" },
+            { max: 70, name: "Andante" },
+            { max: 85, name: "Moderato" },
+            { max: 110, name: "Allegretto" },
+            { max: 145, name: "Allegro" },
+            { max: 180, name: "Vivace" },
+            { max: 210, name: "Presto" },
+            { max: 999, name: "Prestissimo" }
+        ];
+
+        function updateTempoName() {
+            const found = TEMPO_NAMES.find(t => bpm <= t.max);
+            tempoName.innerText = found ? found.name : "Prestissimo";
+        }
+
+        function scheduleNote(beatNumber, time) {
+            const osc = audioContext.createOscillator();
+            const envelope = audioContext.createGain();
+
+            const isAccent = accentEnabled && beatNumber === 0;
+            
+            osc.frequency.value = isAccent ? 1000 : 600;
+            envelope.gain.value = volume;
+            envelope.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+
+            osc.connect(envelope);
+            envelope.connect(audioContext.destination);
+
+            osc.start(time);
+            osc.stop(time + 0.1);
+
+            // Visual Sync (using timeout slightly before the actual audio time for visual snap)
+            const delay = (time - audioContext.currentTime) * 1000;
+            setTimeout(() => {
+                triggerVisual(isAccent, beatNumber + 1);
+            }, delay);
+        }
+
+        function triggerVisual(isAccent, beatNum) {
+            beatDisplay.innerText = beatNum;
+            beatDisplay.classList.remove('opacity-50');
+            beatDisplay.classList.add('opacity-100');
+            
+            const flashClass = isAccent ? 'flash-accent' : 'flash-active';
+            flashContainer.classList.add(flashClass);
+            
+            setTimeout(() => {
+                flashContainer.classList.remove(flashClass);
+                beatDisplay.classList.remove('opacity-100');
+                beatDisplay.classList.add('opacity-50');
+            }, 100);
+        }
+
+        function scheduler() {
+            while (nextNoteTime < audioContext.currentTime + 0.1) {
+                scheduleNote(currentBeat, nextNoteTime);
+                nextNote();
+            }
+            timerID = setTimeout(scheduler, 25);
+        }
+
+        function nextNote() {
+            const secondsPerBeat = 60.0 / bpm;
+            nextNoteTime += secondsPerBeat;
+            currentBeat = (currentBeat + 1) % timeSignature;
+        }
+
+        function togglePlay() {
+            if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            isPlaying = !isPlaying;
+
+            if (isPlaying) {
+                currentBeat = 0;
+                nextNoteTime = audioContext.currentTime + 0.05;
+                playBtn.innerText = 'Stop';
+                playBtn.classList.replace('bg-sky-500', 'bg-rose-500');
+                playBtn.classList.replace('shadow-sky-500/20', 'shadow-rose-500/20');
+                scheduler();
+            } else {
+                clearTimeout(timerID);
+                playBtn.innerText = 'Start';
+                playBtn.classList.replace('bg-rose-500', 'bg-sky-500');
+                playBtn.classList.replace('shadow-rose-500/20', 'shadow-sky-500/20');
+                beatDisplay.innerText = '1';
+            }
+        }
+
+        // Tap Tempo Logic
+        let tapTimes = [];
+        function tapTempo() {
+            const now = Date.now();
+            if (tapTimes.length > 0 && now - tapTimes[tapTimes.length - 1] > 2000) {
+                tapTimes = [];
+            }
+            
+            tapTimes.push(now);
+            if (tapTimes.length > 1) {
+                const intervals = [];
+                for (let i = 1; i < tapTimes.length; i++) {
+                    intervals.push(tapTimes[i] - tapTimes[i-1]);
+                }
+                const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
+                const newBpm = Math.round(60000 / avgInterval);
+                if (newBpm >= 30 && newBpm <= 280) {
+                    updateBpm(newBpm);
+                }
+            }
+            if (tapTimes.length > 4) tapTimes.shift();
+        }
+
+        function updateBpm(val) {
+            bpm = Math.max(30, Math.min(280, val));
+            bpmText.innerText = bpm;
+            bpmSlider.value = bpm;
+            updateTempoName();
+        }
+
+        // Listeners
+        playBtn.addEventListener('click', togglePlay);
+        tapBtn.addEventListener('mousedown', tapTempo);
+        tapBtn.addEventListener('touchstart', (e) => { e.preventDefault(); tapTempo(); });
+
+        bpmSlider.addEventListener('input', (e) => updateBpm(parseInt(e.target.value)));
+        bpmPlus.addEventListener('click', () => updateBpm(bpm + 1));
+        bpmMinus.addEventListener('click', () => updateBpm(bpm - 1));
+        
+        timeSigSelect.addEventListener('change', (e) => {
+            timeSignature = parseInt(e.target.value);
+            currentBeat = 0;
+        });
+
+        accentToggle.addEventListener('change', (e) => accentEnabled = e.target.checked);
+        volumeSlider.addEventListener('input', (e) => volume = parseFloat(e.target.value));
+
+        // Initial update
+        updateTempoName();
+    </script>
+</body>
+</html>
+
