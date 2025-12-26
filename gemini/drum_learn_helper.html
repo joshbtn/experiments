@@ -23,9 +23,6 @@
             border-color: #fde047;
             transform: scale(1.05);
         }
-        .knob-container {
-            user-select: none;
-        }
         input[type="range"] {
             accent-color: #38bdf8;
         }
@@ -33,6 +30,16 @@
             background: rgba(30, 41, 59, 0.7);
             backdrop-filter: blur(8px);
             border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.1);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.3);
+            border-radius: 10px;
         }
     </style>
 </head>
@@ -47,10 +54,10 @@
             
             <div class="flex items-center gap-6 glass rounded-2xl p-4">
                 <div class="flex flex-col items-center">
-                    <span class="text-xs font-bold uppercase text-slate-500 mb-1">Tempo</span>
+                    <span class="text-xs font-bold uppercase text-slate-500 mb-1 text-center">Tempo</span>
                     <div class="flex items-center gap-3">
-                        <input type="range" id="tempoRange" min="40" max="220" value="120" class="w-32">
-                        <span id="tempoDisplay" class="text-xl font-mono font-bold w-12 text-center">120</span>
+                        <input type="range" id="tempoRange" min="40" max="220" value="110" class="w-32">
+                        <span id="tempoDisplay" class="text-xl font-mono font-bold w-12 text-center">110</span>
                     </div>
                 </div>
                 <button id="playBtn" class="bg-sky-500 hover:bg-sky-400 text-white font-bold py-3 px-8 rounded-xl transition-all shadow-lg shadow-sky-900/20 flex items-center gap-2">
@@ -67,7 +74,7 @@
                     <div class="flex justify-between items-center mb-6">
                         <h2 class="font-bold text-lg flex items-center gap-2">
                             <svg class="w-5 h-5 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"></path></svg>
-                            16th Note Grid
+                            16-Step Rhythmic Grid
                         </h2>
                         <button id="clearBtn" class="text-xs text-slate-500 hover:text-white uppercase tracking-widest font-bold">Clear Pattern</button>
                     </div>
@@ -92,9 +99,9 @@
 
                 <!-- Groove Library -->
                 <div class="glass rounded-3xl p-6">
-                    <h2 class="font-bold text-lg mb-4">Groove Encyclopedia</h2>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="grooveLibrary">
-                        <!-- Grooves injected here -->
+                    <h2 class="font-bold text-lg mb-4">Extended Groove Library</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 h-[400px] overflow-y-auto pr-2 custom-scrollbar" id="grooveLibrary">
+                        <!-- 13 Grooves injected here -->
                     </div>
                 </div>
             </div>
@@ -112,8 +119,8 @@
                 <!-- Practice Tips -->
                 <div class="glass rounded-3xl p-6 border-l-4 border-sky-500">
                     <h2 class="font-bold text-sky-400 text-sm uppercase tracking-widest mb-2">Practice Focus</h2>
-                    <div id="practiceTip" class="text-slate-300 text-sm leading-relaxed">
-                        Start by isolating the Kick and Snare. Ensure your "Money Beat" timing is rock solid at 80 BPM before introducing Hi-Hats.
+                    <div id="practiceTip" class="text-slate-300 text-sm leading-relaxed italic">
+                        Select a groove from the library to see specific training tips here.
                     </div>
                 </div>
             </div>
@@ -121,14 +128,12 @@
     </div>
 
     <script>
-        // Audio Engine Configuration
         class DrumEngine {
             constructor() {
                 this.ctx = new (window.AudioContext || window.webkitAudioContext)();
                 this.masterGain = this.ctx.createGain();
                 this.compressor = this.ctx.createDynamicsCompressor();
                 
-                // Technical Foundation: Dedicated Dynamics Compressor
                 this.compressor.threshold.setValueAtTime(-18, this.ctx.currentTime);
                 this.compressor.knee.setValueAtTime(12, this.ctx.currentTime);
                 this.compressor.ratio.setValueAtTime(12, this.ctx.currentTime);
@@ -142,7 +147,7 @@
                     'kick': { freq: 150, decay: 0.5, type: 'sine', volume: 1.0, label: 'Kick Drum' },
                     'snare': { freq: 400, decay: 0.2, type: 'triangle', volume: 0.7, label: 'Snare Drum' },
                     'hihat': { freq: 10000, decay: 0.05, type: 'square', volume: 0.4, label: 'Hi-Hat' },
-                    'crash': { freq: 8000, decay: 1.5, type: 'square', volume: 0.5, label: 'Crash Cymbal' },
+                    'crash': { freq: 8000, decay: 1.5, type: 'square', volume: 0.5, label: 'Crash' },
                     'tom-h': { freq: 250, decay: 0.4, type: 'sine', volume: 0.8, label: 'High Tom' },
                     'tom-m': { freq: 180, decay: 0.4, type: 'sine', volume: 0.8, label: 'Mid Tom' },
                     'tom-f': { freq: 100, decay: 0.6, type: 'sine', volume: 0.9, label: 'Floor Tom' }
@@ -151,13 +156,10 @@
                 this.mutes = {};
                 Object.keys(this.instruments).forEach(id => this.mutes[id] = false);
 
-                // Noise buffer for "multi-stage synthesis" artifacts reduction
                 const bufferSize = 2 * this.ctx.sampleRate;
                 this.noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
                 const output = this.noiseBuffer.getChannelData(0);
-                for (let i = 0; i < bufferSize; i++) {
-                    output[i] = Math.random() * 2 - 1;
-                }
+                for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
             }
 
             play(instId) {
@@ -167,13 +169,12 @@
                 const inst = this.instruments[instId];
                 const now = this.ctx.currentTime;
                 
-                // Synthesis Logic
                 if (instId === 'hihat' || instId === 'snare' || instId === 'crash') {
                     const noise = this.ctx.createBufferSource();
                     noise.buffer = this.noiseBuffer;
                     const noiseFilter = this.ctx.createBiquadFilter();
                     noiseFilter.type = instId === 'snare' ? 'lowpass' : 'highpass';
-                    noiseFilter.frequency.setValueAtTime(instId === 'snare' ? 1000 : 7000, now);
+                    noiseFilter.frequency.setValueAtTime(instId === 'snare' ? 1200 : 7000, now);
                     
                     const noiseGain = this.ctx.createGain();
                     noiseGain.gain.setValueAtTime(inst.volume, now);
@@ -189,17 +190,13 @@
                 if (instId !== 'hihat' && instId !== 'crash') {
                     const osc = this.ctx.createOscillator();
                     const gain = this.ctx.createGain();
-                    
                     osc.type = inst.type;
                     osc.frequency.setValueAtTime(inst.freq, now);
                     osc.frequency.exponentialRampToValueAtTime(0.01, now + inst.decay);
-                    
                     gain.gain.setValueAtTime(inst.volume, now);
                     gain.gain.exponentialRampToValueAtTime(0.01, now + inst.decay);
-                    
                     osc.connect(gain);
                     gain.connect(this.masterGain);
-                    
                     osc.start(now);
                     osc.stop(now + inst.decay);
                 }
@@ -207,72 +204,45 @@
         }
 
         const engine = new DrumEngine();
-        const steps = 8;
-        const subSteps = 2; // Each cell represents an 8th, we visualize 16ths
         const totalSteps = 16;
         let currentStep = 0;
         let isPlaying = false;
         let timer = null;
-        let tempo = 120;
+        let tempo = 110;
 
         const gridData = {};
-        Object.keys(engine.instruments).forEach(inst => {
-            gridData[inst] = new Array(totalSteps).fill(false);
-        });
+        Object.keys(engine.instruments).forEach(inst => gridData[inst] = new Array(totalSteps).fill(false));
 
-        // Groove Library Data
         const grooves = [
-            {
-                name: "The Money Beat",
-                diff: "Novice",
-                tip: "The foundation of rock/pop. Focus on the snare backbeat on counts 2 and 4.",
-                pattern: {
-                    hihat: [0, 2, 4, 6, 8, 10, 12, 14],
-                    kick: [0, 8],
-                    snare: [4, 12]
-                }
-            },
-            {
-                name: "Four on the Floor",
-                diff: "Beginner",
-                tip: "Driving disco/dance feel. Keep the kick drum steady and consistent.",
-                pattern: {
-                    hihat: [0, 2, 4, 6, 8, 10, 12, 14],
-                    kick: [0, 4, 8, 12],
-                    snare: [4, 12]
-                }
-            },
-            {
-                name: "Half-Time Funk",
-                diff: "Advanced",
-                tip: "Heavy groove. Notice the syncopation in the kick pattern between snare hits.",
-                pattern: {
-                    hihat: [0, 2, 4, 6, 8, 10, 12, 14],
-                    kick: [0, 6, 10],
-                    snare: [8]
-                }
-            }
+            { name: "The Money Beat", diff: "Novice", tip: "Standard 2 and 4 backbeat. Rock's most essential groove.", pattern: { hihat: [0,2,4,6,8,10,12,14], kick: [0,8], snare: [4,12] }},
+            { name: "Four on the Floor", diff: "Beginner", tip: "Dance foundation. Focus on the consistency of the kick drum pulse.", pattern: { hihat: [2,6,10,14], kick: [0,4,8,12], snare: [4,12] }},
+            { name: "Basic Blues Shuffle", diff: "Novice", tip: "Focus on the triplet 'swing' feel of the hi-hat (represented here as syncopated 8ths).", pattern: { hihat: [0,3,4,7,8,11,12,15], kick: [0,8], snare: [4,12] }},
+            { name: "Bossa Nova", diff: "Intermediate", tip: "Focus on the cross-stick snare pattern against the steady kick ostinato.", pattern: { hihat: [0,2,4,6,8,10,12,14], kick: [0,6,8,14], snare: [0,3,6,10,13] }},
+            { name: "Reggae One-Drop", diff: "Intermediate", tip: "The kick and snare hit together on beat 3. Leave beat 1 empty.", pattern: { hihat: [0,2,4,6,8,10,12,14], kick: [8], snare: [8] }},
+            { name: "Jazz Ride Pattern", diff: "Intermediate", tip: "Traditional 'spang-spang-a-lang' feel. Keep the kick very soft (feathered).", pattern: { hihat: [4,12], kick: [0,4,8,12], crash: [0,4,6,8,12,14] }},
+            { name: "Linear Gospel Chop", diff: "Advanced", tip: "No two instruments hit at the same time. Focus on flow and dynamics.", pattern: { kick: [0,3], snare: [1,4], hihat: [2,5], 'tom-h': [6,7] }},
+            { name: "Motown Groove", diff: "Novice", tip: "Snare on every quarter note. Driving soul energy.", pattern: { hihat: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15], kick: [0,8], snare: [0,4,8,12] }},
+            { name: "Half-Time Funk", diff: "Advanced", tip: "Heavy, spacious feel. The '3' becomes the new '2 and 4'.", pattern: { hihat: [0,2,4,6,8,10,12,14], kick: [0,7,10,13], snare: [8] }},
+            { name: "The Purdie Shuffle", diff: "Advanced", tip: "Ghost notes (soft snare) between the main hits. Use 16th triplets.", pattern: { hihat: [0,2,4,6,8,10,12,14], snare: [2,5,8,11,14], kick: [0,10] }},
+            { name: "Classic Punk", diff: "Beginner", tip: "High energy, high speed. Focus on 8th note endurance.", pattern: { hihat: [0,2,4,6,8,10,12,14], kick: [0,4,8,12], snare: [2,6,10,14] }},
+            { name: "Samba Pattern", diff: "Advanced", tip: "Constant 16th note motion. Focus on the interplay of feet and hands.", pattern: { hihat: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15], kick: [0,3,4,7,8,11,12,15], snare: [4,12] }},
+            { name: "Industrial Pulse", diff: "Beginner", tip: "Cold, mechanical precision. Perfect for timing endurance.", pattern: { hihat: [0,4,8,12], kick: [0,2,4,6,8,10,12,14], 'tom-f': [0,8] }}
         ];
 
-        // Initialization
         function init() {
             const gridEl = document.getElementById('sequencerGrid');
             const playheadTrack = document.getElementById('playheadTrack');
             const playheadTemplate = document.getElementById('playhead-step');
 
-            // Build grid
             Object.keys(engine.instruments).forEach(instId => {
                 const row = document.createElement('div');
                 row.className = 'flex items-center gap-2';
-                
                 const label = document.createElement('div');
                 label.className = 'w-12 text-[10px] font-bold uppercase text-slate-500 truncate';
-                label.innerText = instId.replace('tom-', 'T');
+                label.innerText = instId.replace('tom-', 'T-');
                 row.appendChild(label);
-
                 const cellsContainer = document.createElement('div');
                 cellsContainer.className = 'flex-1 flex gap-1';
-
                 for (let i = 0; i < totalSteps; i++) {
                     const cell = document.createElement('div');
                     const isDownbeat = i % 4 === 0;
@@ -290,123 +260,86 @@
                 gridEl.appendChild(row);
             });
 
-            // Build playhead
-            for (let i = 0; i < totalSteps; i++) {
-                const clone = playheadTemplate.content.cloneNode(true);
-                playheadTrack.appendChild(clone);
-            }
+            for (let i = 0; i < totalSteps; i++) playheadTrack.appendChild(playheadTemplate.content.cloneNode(true));
 
-            // Build Mixer
             const mixerEl = document.getElementById('mixer');
             Object.entries(engine.instruments).forEach(([id, data]) => {
                 const item = document.createElement('div');
                 item.className = 'flex items-center justify-between gap-4';
                 item.innerHTML = `
                     <span class="text-xs font-medium text-slate-400 w-20">${data.label}</span>
-                    <div class="flex-1 h-1 bg-slate-800 rounded-full relative group">
-                        <input type="range" class="w-full absolute -top-2 opacity-50 hover:opacity-100" min="0" max="100" value="${data.volume * 100}" 
-                            oninput="updateVol('${id}', this.value)">
-                    </div>
-                    <button onclick="toggleMute('${id}', this)" class="px-3 py-1 rounded-md text-[10px] font-bold border border-slate-700 text-slate-500 hover:text-white transition-colors">
-                        MUTE
-                    </button>
+                    <div class="flex-1 h-1 bg-slate-800 rounded-full relative"><input type="range" class="w-full absolute -top-2" min="0" max="100" value="${data.volume * 100}" oninput="updateVol('${id}', this.value)"></div>
+                    <button onclick="toggleMute('${id}', this)" class="px-2 py-1 rounded text-[9px] font-bold border border-slate-700 text-slate-500">MUTE</button>
                 `;
                 mixerEl.appendChild(item);
             });
 
-            // Build Library
             const libraryEl = document.getElementById('grooveLibrary');
             grooves.forEach(g => {
                 const card = document.createElement('button');
-                card.className = 'text-left p-4 rounded-xl border border-slate-800 hover:border-sky-500/50 hover:bg-sky-500/5 transition-all group';
+                card.className = 'text-left p-3 rounded-xl border border-slate-800 hover:border-sky-500/50 hover:bg-sky-500/5 transition-all group shrink-0';
                 card.innerHTML = `
                     <div class="flex justify-between items-start mb-1">
-                        <h3 class="font-bold group-hover:text-sky-400">${g.name}</h3>
-                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-bold">${g.diff}</span>
+                        <h3 class="font-bold text-sm group-hover:text-sky-400">${g.name}</h3>
+                        <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-400 font-bold">${g.diff}</span>
                     </div>
-                    <p class="text-xs text-slate-500 line-clamp-2">${g.tip}</p>
+                    <p class="text-[10px] text-slate-500 line-clamp-1">${g.tip}</p>
                 `;
                 card.onclick = () => loadGroove(g);
                 libraryEl.appendChild(card);
             });
         }
 
-        function updateVol(id, val) {
-            engine.instruments[id].volume = val / 100;
-        }
-
+        function updateVol(id, val) { engine.instruments[id].volume = val / 100; }
         function toggleMute(id, btn) {
             engine.mutes[id] = !engine.mutes[id];
             btn.classList.toggle('bg-red-500/20', engine.mutes[id]);
             btn.classList.toggle('text-red-500', engine.mutes[id]);
-            btn.classList.toggle('border-red-500/50', engine.mutes[id]);
         }
 
         function loadGroove(groove) {
-            // Clear current
-            Object.keys(gridData).forEach(inst => {
-                gridData[inst].fill(false);
-            });
-            
-            // Load new
-            Object.entries(groove.pattern).forEach(([inst, steps]) => {
-                steps.forEach(s => gridData[inst][s] = true);
-            });
-
+            Object.keys(gridData).forEach(inst => gridData[inst].fill(false));
+            Object.entries(groove.pattern).forEach(([inst, steps]) => steps.forEach(s => gridData[inst][s] = true));
             document.getElementById('practiceTip').innerText = groove.tip;
             updateUI();
         }
 
         function updateUI() {
             document.querySelectorAll('.grid-cell').forEach(cell => {
-                const inst = cell.dataset.inst;
-                const step = parseInt(cell.dataset.step);
-                cell.classList.toggle('active', gridData[inst][step]);
+                cell.classList.toggle('active', gridData[cell.dataset.inst][parseInt(cell.dataset.step)]);
             });
         }
 
         function tick() {
             const playheadSteps = document.getElementById('playheadTrack').children;
+            const prevStep = (currentStep + totalSteps - 1) % totalSteps;
             
-            // Reset previous step visuals
-            document.querySelectorAll(`[data-step="${(currentStep + totalSteps - 1) % totalSteps}"]`).forEach(el => el.classList.remove('playing'));
-            playheadSteps[(currentStep + totalSteps - 1) % totalSteps].firstElementChild.classList.add('opacity-0');
+            document.querySelectorAll(`[data-step="${prevStep}"]`).forEach(el => el.classList.remove('playing'));
+            playheadSteps[prevStep].firstElementChild.classList.add('opacity-0');
 
-            // Play current step sounds
-            Object.keys(gridData).forEach(inst => {
-                if (gridData[inst][currentStep]) {
-                    engine.play(inst);
-                }
-            });
+            Object.keys(gridData).forEach(inst => { if (gridData[inst][currentStep]) engine.play(inst); });
 
-            // Update visuals
             document.querySelectorAll(`[data-step="${currentStep}"]`).forEach(el => el.classList.add('playing'));
             playheadSteps[currentStep].firstElementChild.classList.remove('opacity-0');
 
             currentStep = (currentStep + 1) % totalSteps;
-            
-            const stepTime = (60 / tempo) / 4; // 16th notes
-            timer = setTimeout(tick, stepTime * 1000);
+            timer = setTimeout(tick, ((60 / tempo) / 4) * 1000);
         }
 
-        // Event Listeners
         document.getElementById('playBtn').onclick = () => {
             isPlaying = !isPlaying;
             const btn = document.getElementById('playBtn');
             const icon = document.getElementById('playIcon');
             const text = document.getElementById('playText');
-
             if (isPlaying) {
                 if (engine.ctx.state === 'suspended') engine.ctx.resume();
                 btn.classList.replace('bg-sky-500', 'bg-red-500');
-                btn.classList.replace('hover:bg-sky-400', 'hover:bg-red-400');
                 icon.innerHTML = '<path d="M5 4h3v12H5V4zm7 0h3v12h3V4z"/>';
                 text.innerText = 'STOP';
                 tick();
             } else {
                 clearTimeout(timer);
                 btn.classList.replace('bg-red-500', 'bg-sky-500');
-                btn.classList.replace('hover:bg-red-400', 'hover:bg-sky-400');
                 icon.innerHTML = '<path d="M4.5 3.5v13L16 10z"/>';
                 text.innerText = 'START';
                 currentStep = 0;
@@ -429,4 +362,3 @@
     </script>
 </body>
 </html>
-
