@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BitChat Web Client</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: white; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- Header -->
+    <div class="p-4 flex justify-between items-center border-b border-white/10 glass z-10">
+        <div>
+            <h1 class="text-xl font-bold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">BitChat</h1>
+            <p id="status" class="text-[10px] uppercase tracking-widest text-slate-500">Not Connected</p>
+        </div>
+        <button id="connectBtn" class="bg-blue-600 hover:bg-blue-500 px-5 py-2 rounded-full text-sm font-bold transition-transform active:scale-95">
+            Connect
+        </button>
+    </div>
+
+    <!-- Message Display -->
+    <div id="chatBox" class="flex-1 overflow-y-auto p-4 space-y-4 hide-scrollbar">
+        <div class="text-center text-slate-500 text-xs py-10">
+            <p>1. Open BitChat App on another phone</p>
+            <p>2. Tap "Connect" above</p>
+            <p>3. Ensure Bluetooth & Location are ON</p>
+        </div>
+    </div>
+
+    <!-- Input Box -->
+    <div class="p-4 glass border-t border-white/10">
+        <div class="flex gap-2 max-w-2xl mx-auto">
+            <input type="text" id="msgInput" placeholder="Message..." disabled
+                   class="flex-1 bg-slate-800/50 border border-slate-700 rounded-full px-5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50">
+            <button id="sendBtn" disabled class="bg-blue-600 disabled:bg-slate-800 p-3 rounded-full transition-all active:scale-90">
+                <svg viewBox="0 0 24 24" class="w-6 h-6 fill-white"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Nordic UART Service (Used by BitChat and many BLE serial apps)
+        const UART_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+        const TX_CHAR = '6e400002-b5a3-f393-e0a9-e50e24dcca9e';
+        const RX_CHAR = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+        let bleDevice, bleServer, txCharacteristic;
+
+        const connectBtn = document.getElementById('connectBtn');
+        const sendBtn = document.getElementById('sendBtn');
+        const msgInput = document.getElementById('msgInput');
+        const chatBox = document.getElementById('chatBox');
+        const statusText = document.getElementById('status');
+
+        function log(user, msg, isSelf = false) {
+            const div = document.createElement('div');
+            div.className = `flex ${isSelf ? 'justify-end' : 'justify-start'}`;
+            div.innerHTML = `
+                <div class="max-w-[85%] ${isSelf ? 'bg-blue-600 rounded-tr-none' : 'bg-slate-800 rounded-tl-none'} p-3 rounded-2xl shadow-lg">
+                    <p class="text-[10px] opacity-50 font-bold mb-1">${user.toUpperCase()}</p>
+                    <p class="text-sm">${msg}</p>
+                </div>
+            `;
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        connectBtn.onclick = async () => {
+            if (bleDevice && bleDevice.gatt.connected) {
+                bleDevice.gatt.disconnect();
+                return;
+            }
+
+            try {
+                statusText.innerText = "Scanning...";
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [UART_SERVICE] }],
+                    optionalServices: [UART_SERVICE]
+                });
+
+                statusText.innerText = "Connecting...";
+                bleServer = await bleDevice.gatt.connect();
+                
+                const service = await bleServer.getPrimaryService(UART_SERVICE);
+                txCharacteristic = await service.getCharacteristic(TX_CHAR);
+                const rxCharacteristic = await service.getCharacteristic(RX_CHAR);
+
+                await rxCharacteristic.startNotifications();
+                rxCharacteristic.addEventListener('characteristicvaluechanged', (e) => {
+                    const val = new TextDecoder().decode(e.target.value);
+                    log('Peer', val);
+                });
+
+                statusText.innerText = "Connected: " + bleDevice.name;
+                statusText.classList.add('text-blue-400');
+                connectBtn.innerText = "Stop";
+                msgInput.disabled = false;
+                sendBtn.disabled = false;
+                log('System', 'Secure BLE link active.');
+
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+            } catch (err) {
+                console.error(err);
+                statusText.innerText = "Error: " + err.message;
+            }
+        };
+
+        function onDisconnected() {
+            statusText.innerText = "Disconnected";
+            statusText.classList.remove('text-blue-400');
+            connectBtn.innerText = "Connect";
+            msgInput.disabled = true;
+            sendBtn.disabled = true;
+        }
+
+        async function sendMessage() {
+            const text = msgInput.value.trim();
+            if (!text || !txCharacteristic) return;
+
+            try {
+                // BLE Chunker: Most devices have an MTU of 20 bytes
+                const encoder = new TextEncoder();
+                const data = encoder.encode(text + '\n');
+                const CHUNK_SIZE = 20;
+
+                for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+                    const chunk = data.slice(i, i + CHUNK_SIZE);
+                    await txCharacteristic.writeValue(chunk);
+                }
+
+                log('You', text, true);
+                msgInput.value = '';
+            } catch (err) {
+                log('System', 'Send Error: ' + err.message);
+            }
+        }
+
+        sendBtn.onclick = sendMessage;
+        msgInput.onkeypress = (e) => { if(e.key === 'Enter') sendMessage(); };
+    </script>
+</body>
+</html>
+
