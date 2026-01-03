@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Much vs Many Flashcards</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .transition-all { transition: all 0.3s ease; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div id="app" class="min-h-screen p-4 md:p-8 flex flex-col items-center">
+        <!-- Content injected by JavaScript -->
+    </div>
+
+    <script>
+        // Data Library
+        const uniqueNouns = [
+            { n: "apples", t: "many", h: "Apples are individual fruits you can count." },
+            { n: "water", t: "much", h: "Water is a liquid and cannot be counted." },
+            { n: "stars", t: "many", h: "You can count stars in the sky." },
+            { n: "money", t: "much", h: "Money is a general concept; we say 'much money' but 'many dollars'." },
+            { n: "salt", t: "much", h: "Salt grains are too tiny to count one by one." },
+            { n: "friends", t: "many", h: "Friends are people you can count." },
+            { n: "milk", t: "much", h: "Milk is a liquid." },
+            { n: "pages", t: "many", h: "Pages in a book are numbered and countable." },
+            { n: "birds", t: "many", h: "Birds are animals you can count." },
+            { n: "time", t: "much", h: "Time is a continuous measurement." },
+            { n: "flowers", t: "many", h: "You can count each flower in a bouquet." },
+            { n: "juice", t: "much", h: "Juice is a liquid." },
+            { n: "chairs", t: "many", h: "Chairs are separate pieces of furniture." },
+            { n: "noise", t: "much", h: "Noise is a sound and is uncountable." },
+            { n: "sugar", t: "much", h: "Sugar is a mass of tiny crystals." },
+            { n: "cars", t: "many", h: "Cars are vehicles you can count." },
+            { n: "homework", t: "much", h: "Homework is an uncountable task." },
+            { n: "toys", t: "many", h: "Toys are individual objects." },
+            { n: "snow", t: "much", h: "Snow is a mass of frozen water." },
+            { n: "cookies", t: "many", h: "Cookies are individual snacks." },
+            { n: "rice", t: "much", h: "Rice is a mass of tiny grains." },
+            { n: "sandwiches", t: "many", h: "You can count sandwiches on a tray." },
+            { n: "butter", t: "much", h: "Butter is a spreadable mass." },
+            { n: "strawberries", t: "many", h: "Strawberries are individual berries." },
+            { n: "soup", t: "much", h: "Soup is a liquid food." },
+            { n: "pancakes", t: "many", h: "Pancakes are stacked and countable." },
+            { n: "flour", t: "much", h: "Flour is a fine powder." },
+            { n: "eggs", t: "many", h: "Eggs are separate items." },
+            { n: "rain", t: "much", h: "Rain is water falling from clouds." },
+            { n: "clouds", t: "many", h: "You can count separate clouds in the sky." },
+            { n: "wind", t: "much", h: "Wind is moving air." },
+            { n: "trees", t: "many", h: "Trees are large plants you can count." },
+            { n: "sunlight", t: "much", h: "Light is uncountable energy." },
+            { n: "leaves", t: "many", h: "Leaves are separate parts of a plant." },
+            { n: "pencils", t: "many", h: "Pencils are distinct tools." },
+            { n: "paper", t: "much", h: "Paper is a material." },
+            { n: "markers", t: "many", h: "Markers are countable items." },
+            { n: "ink", t: "much", h: "Ink is a liquid used in pens." },
+            { n: "books", t: "many", h: "Books are solid, countable objects." },
+            { n: "knowledge", t: "much", h: "Knowledge is an abstract idea." },
+            { n: "ideas", t: "many", h: "Ideas are distinct thoughts you can list." },
+            { n: "dust", t: "much", h: "Dust is a mass of tiny particles." },
+            { n: "spiders", t: "many", h: "Spiders are countable creatures." },
+            { n: "furniture", t: "much", h: "Furniture is a collective noun." },
+            { n: "tables", t: "many", h: "Tables are separate items." },
+            { n: "advice", t: "much", h: "Advice is an uncountable concept." },
+            { n: "questions", t: "many", h: "Questions can be counted one by one." },
+            { n: "luck", t: "much", h: "Luck is an abstract feeling." },
+            { n: "coins", t: "many", h: "Coins are individual pieces of metal." },
+            { n: "traffic", t: "much", h: "Traffic is a mass of vehicles." }
+        ];
+
+        const templates = [
+            "How ___ {n} are there?",
+            "We don't have ___ {n}.",
+            "Is there ___ {n} left?",
+            "There are too ___ {n} here.",
+            "I saw so ___ {n} today!",
+        ];
+
+        // Generate the 250 examples
+        const allExamples = [];
+        let nounIdx = 0;
+        let tempIdx = 0;
+
+        for (let i = 0; i < 250; i++) {
+            const nounObj = uniqueNouns[nounIdx];
+            let sentence = templates[tempIdx].replace("{n}", nounObj.n);
+            
+            if (nounObj.t === "much") {
+                sentence = sentence.replace("are there", "is there")
+                                   .replace("There are too", "There is too")
+                                   .replace("there are!", "there is!");
+            }
+
+            allExamples.push({
+                sentence: sentence,
+                answer: nounObj.t,
+                tip: nounObj.h
+            });
+
+            nounIdx = (nounIdx + 1) % uniqueNouns.length;
+            if (nounIdx === 0) tempIdx = (tempIdx + 1) % templates.length;
+        }
+
+        // App State
+        let currentIdx = 0;
+        let score = 0;
+        let showResult = false;
+        let isCorrect = null;
+        let isFinished = false;
+
+        function render() {
+            const app = document.getElementById('app');
+            const example = allExamples[currentIdx];
+            const progress = ((currentIdx + 1) / allExamples.length) * 100;
+
+            if (isFinished) {
+                app.innerHTML = `
+                    <div class="max-w-2xl w-full bg-white rounded-3xl shadow-xl p-12 text-center border border-slate-100">
+                        <div class="w-20 h-20 bg-yellow-100 text-yellow-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15.477 12.89 1.515 8.526a.5.5 0 0 1-.81.47l-3.58-2.687a1 1 0 0 0-1.197 0l-3.586 2.686a.5.5 0 0 1-.81-.469l1.514-8.526"/><circle cx="12" cy="8" r="6"/></svg>
+                        </div>
+                        <h2 class="text-3xl font-bold mb-2">Challenge Complete!</h2>
+                        <p class="text-slate-500 mb-8">You answered ${score} out of ${allExamples.length} questions correctly.</p>
+                        <button onclick="resetGame()" class="py-4 px-8 bg-indigo-600 text-white rounded-2xl font-bold text-xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 mx-auto">
+                           Start Over
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+
+            app.innerHTML = `
+                <header class="max-w-2xl w-full mb-8 text-center">
+                    <h1 class="text-3xl font-bold text-indigo-600 mb-2 flex items-center justify-center gap-2">
+                        Much vs. Many
+                    </h1>
+                    <p class="text-slate-500 font-medium">250 Unique Challenges!</p>
+                </header>
+
+                <div class="max-w-2xl w-full bg-white rounded-3xl shadow-xl shadow-indigo-100 overflow-hidden border border-slate-100">
+                    <div class="h-2 bg-slate-100 w-full">
+                        <div class="h-full bg-indigo-500 transition-all duration-500" style="width: ${progress}%"></div>
+                    </div>
+
+                    <div class="p-8 md:p-12">
+                        <div class="flex justify-between items-center mb-8">
+                            <span class="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-sm font-bold">
+                                Card ${currentIdx + 1} of ${allExamples.length}
+                            </span>
+                            <span class="text-slate-400 text-sm font-medium">Score: ${score}</span>
+                        </div>
+
+                        <div class="mb-12 min-h-[120px] flex items-center justify-center">
+                            <h2 class="text-2xl md:text-3xl font-medium leading-relaxed text-center italic">
+                                "${renderSentence(example.sentence)}"
+                            </h2>
+                        </div>
+
+                        ${showResult ? `
+                            <div class="mb-8 p-4 rounded-2xl flex items-start gap-3 transition-all ${isCorrect ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}">
+                                <div>
+                                    <p class="font-bold">${isCorrect ? 'Correct!' : 'Keep trying!'}</p>
+                                    <p class="text-sm opacity-90">${example.tip}</p>
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            ${!showResult ? `
+                                <button onclick="handleAnswer('much')" class="py-4 px-6 bg-white border-2 border-indigo-500 text-indigo-600 hover:bg-indigo-50 rounded-2xl font-bold text-xl transition-all active:scale-95">Much</button>
+                                <button onclick="handleAnswer('many')" class="py-4 px-6 bg-indigo-500 text-white hover:bg-indigo-600 rounded-2xl font-bold text-xl transition-all shadow-lg shadow-indigo-200 active:scale-95">Many</button>
+                            ` : `
+                                <button onclick="nextQuestion()" class="md:col-span-2 py-4 px-6 bg-slate-800 text-white hover:bg-slate-900 rounded-2xl font-bold text-xl transition-all flex items-center justify-center gap-2">
+                                    Next Question
+                                </button>
+                            `}
+                        </div>
+                    </div>
+                </div>
+
+                <footer class="max-w-2xl w-full mt-12 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                        <div class="w-10 h-10 shrink-0 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center font-bold">MANY</div>
+                        <p class="text-sm text-slate-600 leading-tight">Use for <b>countable</b> things. If you can count them (1, 2, 3...), use many!</p>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+                        <div class="w-10 h-10 shrink-0 bg-purple-100 text-purple-600 rounded-xl flex items-center justify-center font-bold">MUCH</div>
+                        <p class="text-sm text-slate-600 leading-tight">Use for <b>uncountable</b> things like liquids, air, or feelings.</p>
+                    </div>
+                </footer>
+            `;
+        }
+
+        function renderSentence(text) {
+            const parts = text.split('___');
+            const blank = showResult ? 
+                `<span class="mx-2 px-4 py-1 border-b-4 ${isCorrect ? 'border-green-500 text-green-600' : 'border-red-500 text-red-600'} rounded transition-all inline-block min-w-[80px]">${allExamples[currentIdx].answer}</span>` : 
+                `<span class="mx-2 px-4 py-1 border-b-4 border-indigo-200 text-transparent bg-indigo-50 rounded transition-all inline-block min-w-[80px]">...</span>`;
+            
+            return parts[0] + blank + parts[1];
+        }
+
+        window.handleAnswer = (choice) => {
+            if (showResult) return;
+            isCorrect = choice === allExamples[currentIdx].answer;
+            if (isCorrect) score++;
+            showResult = true;
+            render();
+        };
+
+        window.nextQuestion = () => {
+            if (currentIdx + 1 < allExamples.length) {
+                currentIdx++;
+                showResult = false;
+                isCorrect = null;
+            } else {
+                isFinished = true;
+            }
+            render();
+        };
+
+        window.resetGame = () => {
+            currentIdx = 0;
+            score = 0;
+            showResult = false;
+            isCorrect = null;
+            isFinished = false;
+            render();
+        };
+
+        // Initial render
+        render();
+    </script>
+</body>
+</html>
+
