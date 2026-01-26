@@ -1,0 +1,30 @@
+{
+  "name": "skifree-vr",
+  "version": "1.0.0",
+  "description": "A VR ski game built with A-Frame and modular JavaScript architecture",
+  "main": "index.html",
+  "type": "module",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "dev": "python -m http.server 8000",
+    "build": "echo 'No build step required for this project'",
+    "test": "echo 'No tests configured yet'"
+  },
+  "keywords": [
+    "vr",
+    "game",
+    "aframe",
+    "skiing",
+    "webvr"
+  ],
+  "author": "Game Studio",
+  "license": "MIT",
+  "dependencies": {
+    "aframe": "^1.5.0"
+  },
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/skifree-vr"
+  }
+}
