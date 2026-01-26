@@ -6,15 +6,12 @@
 class InputHandler {
   constructor() {
     this.keys = {
-      left: false,
-      right: false,
       space: false
     };
     
     this.camera = null;
-    this.keyboardSensitivity = 0.15;
-    this.vrSensitivity = 0.004; // Tilt sensitivity (degrees to steer)
-    this.vrDeadzone = 2.0;       // Ignore tiny head tilt
+    this.vrSensitivity = 0.004; // Yaw sensitivity (degrees -> lateral steer)
+    this.vrDeadzone = 2.0;       // Ignore tiny head yaw
     this.vrMaxSteer = 0.08;      // Clamp max steer per frame
     
     this.setupEventListeners();
@@ -32,8 +29,6 @@ class InputHandler {
    * Handle key down event
    */
   handleKeyDown(e) {
-    if (e.key === 'ArrowLeft') this.keys.left = true;
-    if (e.key === 'ArrowRight') this.keys.right = true;
     if (e.key === ' ') this.keys.space = true;
   }
 
@@ -41,8 +36,6 @@ class InputHandler {
    * Handle key up event
    */
   handleKeyUp(e) {
-    if (e.key === 'ArrowLeft') this.keys.left = false;
-    if (e.key === 'ArrowRight') this.keys.right = false;
     if (e.key === ' ') this.keys.space = false;
   }
 
@@ -54,30 +47,30 @@ class InputHandler {
   }
 
   /**
-   * Calculate steering input from both keyboard and VR
+   * Calculate steering and forward factor from head yaw only
+   * - Yaw steers laterally
+   * - Forward factor slows descent based on turning angle
    */
-  getSteering() {
+  getSteeringAndHeading() {
+    if (!this.camera) return { steering: 0, forwardFactor: 1 };
+
+    const rotation = this.camera.getAttribute('rotation') || { y: 0, z: 0 };
+    const yaw = rotation.y || 0; // degrees around vertical axis
+
+    // Forward factor: 1 when looking straight downhill, 0 when 90° across
+    const yawRad = yaw * Math.PI / 180;
+    const forwardFactor = (Math.abs(yaw) >= 90) ? 0 : Math.max(0, Math.cos(yawRad));
+
+    // Lateral steering proportional to yaw, with deadzone and clamp
     let steering = 0;
-
-    // Keyboard input
-    if (this.keys.left) steering -= this.keyboardSensitivity;
-    if (this.keys.right) steering += this.keyboardSensitivity;
-
-    // VR head tilt input
-    if (this.camera) {
-      const rotation = this.camera.getAttribute('rotation');
-      const roll = rotation ? rotation.z || 0 : 0; // A-Frame rotation in degrees
-      const absRoll = Math.abs(roll);
-
-      if (absRoll > this.vrDeadzone) {
-        const steerFromTilt = -(roll * this.vrSensitivity);
-        // Clamp to avoid over-steering from big head tilts
-        const clamped = Math.max(-this.vrMaxSteer, Math.min(this.vrMaxSteer, steerFromTilt));
-        steering += clamped;
-      }
+    const absYaw = Math.abs(yaw);
+    if (absYaw > this.vrDeadzone) {
+      // Invert sign so looking right steers right in world space
+      const steerFromYaw = -yaw * this.vrSensitivity;
+      steering = Math.max(-this.vrMaxSteer, Math.min(this.vrMaxSteer, steerFromYaw));
     }
 
-    return steering;
+    return { steering, forwardFactor };
   }
 
   /**

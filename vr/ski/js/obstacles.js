@@ -82,8 +82,18 @@ class ObstacleManager {
     leaves.setAttribute('color', '#1b4d3e');
     tree.appendChild(leaves);
 
+    tree.setAttribute('static-body', '');
     world.appendChild(tree);
-    this.obstacles.push({ element: tree, type: 'tree', x, z, radius: 0.8 });
+    // Collision box: tree is ~0.8 wide, ~2.5 tall (leaves at 1.2 offset)
+    this.obstacles.push({
+      element: tree,
+      type: 'tree',
+      x, z,
+      // Half-extents of collision box (width/2, height/2, depth/2)
+      halfWidth: 0.5,   // X extent
+      halfHeight: 1.25, // Y extent (half of 2.5 height)
+      halfDepth: 0.5    // Z extent
+    });
   }
 
   /**
@@ -110,8 +120,18 @@ class ObstacleManager {
       ramp.appendChild(strip);
     });
 
+    ramp.setAttribute('static-body', '');
     world.appendChild(ramp);
-    this.obstacles.push({ element: ramp, type: 'jump-ramp', x, z, width: 6 });
+    // Collision box: 5 strips of 0.4 depth each = 2.0 depth total
+    this.obstacles.push({
+      element: ramp,
+      type: 'jump-ramp',
+      x, z,
+      // Half-extents of collision box
+      halfWidth: 3.0,   // X extent (6 wide)
+      halfHeight: 0.1,  // Y extent (0.2 tall)
+      halfDepth: 1.0    // Z extent (2.0 deep)
+    });
   }
 
   /**

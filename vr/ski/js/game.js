@@ -17,6 +17,7 @@ class SkiFreeGame {
     this.distance = 0;
     this.score = 0;
     this.bestScore = localStorage.getItem('skifree_best') || 0;
+    this.messageFadeTimeout = null;
 
     // Systems
     this.physics = new PhysicsEngine();
@@ -74,7 +75,15 @@ class SkiFreeGame {
     // Update UI
     this.ui.startNode.setAttribute('visible', 'false');
     this.ui.startButton.style.display = 'none';
-    this.ui.message.innerText = 'ARROW KEYS / HEAD TILT TO STEER | SPACEBAR TO JUMP';
+    this.ui.message.innerText = 'LOOK TO STEER | SPACE TO JUMP';
+    this.ui.message.style.opacity = '1';
+    this.ui.message.style.transition = 'opacity 0.6s ease';
+    if (this.messageFadeTimeout) {
+      clearTimeout(this.messageFadeTimeout);
+    }
+    this.messageFadeTimeout = setTimeout(() => {
+      this.ui.message.style.opacity = '0';
+    }, 10000);
 
     // Clear world position
     this.ui.world.setAttribute('position', '0 0 0');
@@ -97,17 +106,18 @@ class SkiFreeGame {
    * Update game logic
    */
   update() {
-    // Increase speed over time
-    const speed = Math.min(
+    // Get steering + heading slowdown from head yaw
+    const { steering, forwardFactor } = this.input.getSteeringAndHeading();
+
+    // Increase speed over time, then scale by heading factor
+    const rawSpeed = Math.min(
       this.config.baseSpeed + (this.distance * this.config.speedAccel),
       this.config.maxSpeed
     );
+    const speed = rawSpeed * forwardFactor;
 
-    // Advance distance
+    // Advance distance with heading-adjusted speed
     this.distance += speed;
-
-    // Get input
-    const steering = this.input.getSteering();
 
     // Apply physics
     this.physics.applySteering(this.player, steering);
@@ -120,8 +130,8 @@ class SkiFreeGame {
     }
 
     // Update systems (obstacles move toward player)
-    this.world.updateMotionLines(speed);
-    this.obstacles.update(this.distance, speed);
+    this.world.updateMotionLines(speed * forwardFactor);
+    this.obstacles.update(this.distance, speed * forwardFactor);
 
     // Update UI
     this.ui.distance.innerText = `Distance: ${Math.floor(this.distance)}m`;
@@ -161,37 +171,44 @@ class SkiFreeGame {
   }
 
   /**
-   * Check collision with tree
+   * Check collision with tree using AABB (axis-aligned bounding box)
+   * All positions are in camera-relative space
    */
   checkTreeCollision(tree) {
-    const dx = Math.abs(this.player.position.x - tree.x);
-    const treeRadius = 0.8;
     const playerRadius = 0.3;
-    const collisionZRange = 3.0; // Check when obstacle is near player (player at z=0)
+    
+    // Camera (player) is always at visual x=0, tree is at tree.x - player.position.x visually
+    const treeVisualX = tree.x - this.player.position.x;
+    const treeVisualY = 0; // Tree base at ground level
+    
+    // Check if player's position overlaps tree's collision box
+    const overlapX = Math.abs(0 - treeVisualX) < (tree.halfWidth + playerRadius);
+    const overlapY = Math.abs(this.player.position.y - treeVisualY) < (tree.halfHeight + playerRadius);
+    const overlapZ = Math.abs(tree.z) < (tree.halfDepth + playerRadius + 1.0);
 
-    // Player is at z=0, check if obstacle is close
-    if (dx < treeRadius + playerRadius && 
-        tree.z > -collisionZRange && 
-        tree.z < collisionZRange &&
-        this.player.position.y < 0.5) {
+    if (overlapX && overlapY && overlapZ) {
       this.gameOver('CRASHED INTO TREE!');
     }
   }
 
   /**
-   * Check collision with jump ramp
+   * Check collision with jump ramp using AABB
+   * All positions are in camera-relative space
    */
   checkRampCollision(ramp) {
-    const dx = Math.abs(this.player.position.x - ramp.x);
-    const rampWidth = 6;
     const playerRadius = 0.3;
-    const collisionZRange = 3.0; // Check when obstacle is near player
+    
+    // Camera (player) is always at visual x=0, ramp is at ramp.x - player.position.x visually
+    const rampVisualX = ramp.x - this.player.position.x;
+    const rampVisualY = 0; // Ramp base at ground level
+    
+    // Check if player's position overlaps ramp's collision box
+    const overlapX = Math.abs(0 - rampVisualX) < (ramp.halfWidth + playerRadius);
+    const overlapY = Math.abs(this.player.position.y - rampVisualY) < (ramp.halfHeight + playerRadius + 0.1);
+    const overlapZ = Math.abs(ramp.z) < (ramp.halfDepth + playerRadius + 1.0);
 
-    // Player is at z=0, trigger jump when ramp is close
-    if (dx < rampWidth / 2 + playerRadius && 
-        ramp.z > -collisionZRange && 
-        ramp.z < collisionZRange &&
-        this.player.position.y < 0.2) {
+    // Trigger jump only when roughly on ground level
+    if (overlapX && overlapY && overlapZ && this.player.position.y < 0.3) {
       this.physics.applyJump(this.player, 0.42);
       console.log('JUMP!');
     }
@@ -216,6 +233,10 @@ class SkiFreeGame {
       Distance: ${this.score}m | Best: ${this.bestScore}m<br>
       <span style="font-size:14px">CLICK TO RETRY</span>
     `;
+    this.ui.message.style.opacity = '1';
+    if (this.messageFadeTimeout) {
+      clearTimeout(this.messageFadeTimeout);
+    }
 
     this.ui.startNode.setAttribute('visible', 'true');
     this.ui.startButton.style.display = 'block';
