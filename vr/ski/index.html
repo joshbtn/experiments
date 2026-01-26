@@ -32,8 +32,8 @@
     <!-- Added raycaster configuration to the scene -->
     <a-scene 
       renderer="antialias: true; colorManagement: true;"
-      fog="type: linear; color: #87CEEB; near: 20; far: 120"
-      background="color: #87CEEB"
+      fog="type: linear; color: #E0F6FF; near: 20; far: 120"
+      background="color: #E0F6FF"
       raycaster="objects: .interactive">
       
       <a-assets>
@@ -41,7 +41,7 @@
       </a-assets>
 
       <!-- Sky Sphere -->
-      <a-sky id="sky" color="#87CEEB"></a-sky>
+      <a-sky id="sky" color="#E0F6FF"></a-sky>
 
       <!-- Player Rig -->
       <a-entity id="rig" position="0 0 0" rotation="-15 0 0">
@@ -81,6 +81,11 @@
       <!-- Scrolling World -->
       <a-entity id="world" rotation="-15 0 0">
         <a-plane id="ground" position="0 -1 -500" rotation="-90 0 0" width="100" height="2000" color="#ffffff"></a-plane>
+        
+        <!-- Motion lines for speed effect -->
+        <a-entity id="motion-lines">
+          <!-- These will be created and animated in JS -->
+        </a-entity>
       </a-entity>
 
       <a-light type="ambient" color="#FFF" intensity="0.8"></a-light>
@@ -95,6 +100,7 @@
       let playerY = 0;
       let jumpVelocity = 0;
       const gravity = -0.015;
+      let lastSpawnDistance = 0;  // Track last spawn distance precisely
 
       const world = document.getElementById('world');
       const startNode = document.getElementById('start-node');
@@ -103,6 +109,8 @@
       const msgUI = document.getElementById('msg');
       const camera = document.getElementById('camera');
       const playerContainer = document.getElementById('player-container');
+      const motionLines = document.getElementById('motion-lines');
+      let motionLineOffset = 0;
 
       // Use the 'click' event which is automatically fired by a-frame when fuseTimeout is reached
       startBox.addEventListener('click', function() {
@@ -118,43 +126,81 @@
         playerX = 0;
         playerY = 0;
         jumpVelocity = 0;
+        lastSpawnDistance = 0;
+        motionLineOffset = 0;
         
         // Reset world
-        world.innerHTML = '<a-plane position="0 -1 -500" rotation="-90 0 0" width="100" height="2000" color="#ffffff"></a-plane>';
+        world.innerHTML = '<a-plane id="ground" position="0 -1 -500" rotation="-90 0 0" width="100" height="2000" color="#ffffff"></a-plane><a-entity id="motion-lines"></a-entity>';
         world.setAttribute('position', '0 0 0');
         
         // UI
         startNode.setAttribute('visible', 'false');
         startBox.classList.remove('interactive');
         msgUI.innerText = "TILT HEAD TO STEER | HIT RAINBOWS TO JUMP";
+        
+        // Create initial motion lines
+        createMotionLines();
+      }
+
+      function createMotionLines() {
+        const motionLinesEntity = world.querySelector('#motion-lines');
+        if (!motionLinesEntity) return;
+        
+        // Create horizontal lines across the slope for motion effect
+        for (let i = 0; i < 20; i++) {
+          const line = document.createElement('a-plane');
+          line.setAttribute('width', '100');
+          line.setAttribute('height', '2');
+          line.setAttribute('color', '#f0f0f0');
+          line.setAttribute('opacity', '0.3');
+          line.setAttribute('position', `0 0 ${-100 + i * 12}`);
+          line.setAttribute('rotation', '0 0 0');
+          motionLinesEntity.appendChild(line);
+        }
       }
 
       function spawnEntity() {
         const rng = Math.random();
         const obj = document.createElement('a-entity');
         const x = (Math.random() - 0.5) * 30;
-        const z = -60 - (world.getAttribute('position').z || 0);
+        const z = -80 - (world.getAttribute('position').z || 0);  // Spawn further away (was -60)
         obj.setAttribute('position', `${x} -1 ${z}`);
 
         if (rng < 0.75) {
           // Tree Obstacle
           const trunk = document.createElement('a-cylinder');
-          trunk.setAttribute('radius', '0.15'); trunk.setAttribute('height', '0.6'); trunk.setAttribute('color', '#4b3621');
+          trunk.setAttribute('radius', '0.15'); 
+          trunk.setAttribute('height', '0.6'); 
+          trunk.setAttribute('color', '#4b3621');
           obj.appendChild(trunk);
+          
           const leaves = document.createElement('a-cone');
-          leaves.setAttribute('radius-bottom', '0.8'); leaves.setAttribute('height', '2.5'); leaves.setAttribute('position', '0 1.2 0'); leaves.setAttribute('color', '#1b4d3e');
+          leaves.setAttribute('radius-bottom', '0.8'); 
+          leaves.setAttribute('height', '2.5'); 
+          leaves.setAttribute('position', '0 1.2 0'); 
+          leaves.setAttribute('color', '#1b4d3e');
           obj.appendChild(leaves);
+          
+          // Add data attributes for collision detection
+          obj.setAttribute('data-type', 'obstacle');
+          obj.setAttribute('data-width', '1.6');  // Collision width
+          obj.setAttribute('data-radius', '0.8');  // Tree radius
           obj.classList.add('obstacle');
         } else {
           // Rainbow Jump
           const colors = ['#ff0000', '#ff7f00', '#ffff00', '#00ff00', '#0000ff'];
           colors.forEach((c, i) => {
             const strip = document.createElement('a-box');
-            strip.setAttribute('width', '5'); strip.setAttribute('height', '0.2'); strip.setAttribute('depth', '0.4');
-            strip.setAttribute('position', `0 0.1 ${i * 0.4}`);
+            strip.setAttribute('width', '5'); 
+            strip.setAttribute('height', '0.2'); 
+            strip.setAttribute('depth', '0.4');
+            strip.setAttribute('position', `0 0.05 ${i * 0.4}`);
             strip.setAttribute('color', c);
             obj.appendChild(strip);
           });
+          
+          obj.setAttribute('data-type', 'jump-ramp');
+          obj.setAttribute('data-width', '5');
           obj.classList.add('jump-ramp');
         }
         world.appendChild(obj);
@@ -186,13 +232,22 @@
           const wPos = world.getAttribute('position');
           world.setAttribute('position', { x: -playerX, y: 0, z: wPos.z + speed });
 
-          // Spawn obstacles periodically
-          if (Math.floor(distance) % 15 === 0 && distance > 0) {
-            // Simple check to prevent multi-spawning on same frame
-            if (!this.lastSpawnDist || Math.floor(distance) > this.lastSpawnDist) {
-                spawnEntity();
-                this.lastSpawnDist = Math.floor(distance);
-            }
+          // Update motion line offset for visual effect
+          motionLineOffset += speed;
+          const motionLinesEntity = world.querySelector('#motion-lines');
+          if (motionLinesEntity) {
+            const lines = motionLinesEntity.querySelectorAll('a-plane');
+            lines.forEach((line, index) => {
+              const baseZ = -100 + index * 12;
+              const newZ = ((baseZ + motionLineOffset) % 240) - 120;  // Loop every 240 units
+              line.setAttribute('position', `0 0 ${newZ}`);
+            });
+          }
+
+          // Spawn obstacles every 12 units of distance (more frequent spawning)
+          if (distance - lastSpawnDistance > 12) {
+            spawnEntity();
+            lastSpawnDistance = distance;
           }
 
           // Collisions
@@ -201,21 +256,38 @@
           document.querySelectorAll('.obstacle').forEach(obs => {
             const oPos = obs.getAttribute('position');
             const zRel = oPos.z + worldZPos;
-            if (zRel > -0.6 && zRel < 0.6 && playerY < 0.5) {
-              if (Math.abs(oPos.x - playerX) < 1.0) endGame("CRASHED!");
+            
+            // Collision only happens when obstacle is close and player is low
+            // Narrower collision window (was -0.6 to 0.6, now -0.3 to 0.3)
+            if (zRel > -0.3 && zRel < 0.3 && playerY < 0.4) {
+              const obsWidth = parseFloat(obs.getAttribute('data-radius')) || 0.8;
+              if (Math.abs(oPos.x - playerX) < obsWidth + 0.3) {  // Player width safety margin
+                endGame("CRASHED INTO TREE!");
+              }
             }
-            if (zRel > 15) obs.parentNode.removeChild(obs);
+            
+            // Remove when far behind
+            if (zRel > 20) {
+              if (obs.parentNode) obs.parentNode.removeChild(obs);
+            }
           });
 
           document.querySelectorAll('.jump-ramp').forEach(ramp => {
             const rPos = ramp.getAttribute('position');
             const zRel = rPos.z + worldZPos;
-            if (zRel > -1 && zRel < 1 && playerY < 0.2) {
-              if (Math.abs(rPos.x - playerX) < 2.5) {
+            
+            // Trigger jump when ramp is directly under player
+            if (zRel > -0.5 && zRel < 0.5 && playerY < 0.2) {
+              const rampWidth = parseFloat(ramp.getAttribute('data-width')) || 5;
+              if (Math.abs(rPos.x - playerX) < rampWidth / 2 + 0.3) {
                 jumpVelocity = 0.35; 
               }
             }
-            if (zRel > 15) ramp.parentNode.removeChild(ramp);
+            
+            // Remove when far behind
+            if (zRel > 20) {
+              if (ramp.parentNode) ramp.parentNode.removeChild(ramp);
+            }
           });
         }
         requestAnimationFrame(gameLoop);
