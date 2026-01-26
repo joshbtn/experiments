@@ -15,7 +15,7 @@ class ObstacleManager {
   /**
    * Spawn obstacles based on distance and move them toward player
    */
-  update(distance, speed) {
+  update(distance, speed, playerX = 0) {
     if (distance - this.lastSpawnDistance > this.spawnInterval) {
       this.spawn();
       this.lastSpawnDistance = distance;
@@ -24,19 +24,26 @@ class ObstacleManager {
     // Move all obstacles toward player (player is at z=0)
     this.obstacles.forEach(obs => {
       obs.z += speed;
-      obs.element.setAttribute('position', `${obs.x} 0 ${obs.z}`);
+      // Position relative to player camera (player is at 0, obstacles are offset by playerX)
+      const visualX = obs.x - playerX;
+      obs.element.setAttribute('position', `${visualX} 0 ${obs.z}`);
     });
 
     // Update and clean obstacles
     this.updateObstacles();
+    
+    // Debug log current obstacles
+    if (this.obstacles.length > 0) {
+      console.log(`[UPDATE] ${this.obstacles.length} obstacles: ${this.obstacles.map(o => `${o.type}(${o.x.toFixed(1)},${o.z.toFixed(1)})`).join(', ')}`);
+    }
   }
 
   /**
    * Spawn a new random obstacle
    */
   spawn() {
-    // Spawn in front of player (player is at z=0)
-    const potentialZ = -70 - Math.random() * 50; // random distance ahead
+    // Spawn much closer in front of player for timely collision detection
+    const potentialZ = -30 - Math.random() * 20; // Spawn between z=-30 to z=-50 (much closer)
 
     // Check spacing against existing obstacles
     const tooClose = this.obstacles.some(obs => Math.abs(obs.z - potentialZ) < this.minSpacing);
@@ -51,7 +58,7 @@ class ObstacleManager {
     } else {
       this.spawnJumpRamp(x, z);
     }
-
+    console.log(`[SPAWN] Obstacle at (${x.toFixed(1)}, ${z.toFixed(1)}), total: ${this.obstacles.length + 1}`);
   }
 
   /**
@@ -81,6 +88,15 @@ class ObstacleManager {
     leaves.setAttribute('position', '0 1.2 0');
     leaves.setAttribute('color', '#1b4d3e');
     tree.appendChild(leaves);
+
+    // Collision box (transparent debug visual)
+    const collisionBox = document.createElement('a-box');
+    collisionBox.setAttribute('width', '1.0');   // halfWidth * 2
+    collisionBox.setAttribute('height', '2.5');  // halfHeight * 2
+    collisionBox.setAttribute('depth', '1.0');   // halfDepth * 2
+    collisionBox.setAttribute('color', '#ff0000');
+    collisionBox.setAttribute('opacity', '0.2');
+    tree.appendChild(collisionBox);
 
     tree.setAttribute('static-body', '');
     world.appendChild(tree);
@@ -119,6 +135,16 @@ class ObstacleManager {
       strip.setAttribute('color', color);
       ramp.appendChild(strip);
     });
+
+    // Collision box (transparent debug visual)
+    const collisionBox = document.createElement('a-box');
+    collisionBox.setAttribute('width', '6.0');   // halfWidth * 2
+    collisionBox.setAttribute('height', '0.2');  // halfHeight * 2
+    collisionBox.setAttribute('depth', '2.0');   // halfDepth * 2
+    collisionBox.setAttribute('color', '#00ff00');
+    collisionBox.setAttribute('opacity', '0.2');
+    collisionBox.setAttribute('position', `0 0.05 0`);
+    ramp.appendChild(collisionBox);
 
     ramp.setAttribute('static-body', '');
     world.appendChild(ramp);

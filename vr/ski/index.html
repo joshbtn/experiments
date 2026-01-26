@@ -87,7 +87,7 @@
     <!-- HUD -->
     <div id="ui">
       <div id="distance">Distance: 0m</div>
-      <div id="msg">LOOK TO STEER | SPACE TO JUMP | GAZE OR CLICK TO START</div>
+      <div id="msg">LOOK TO STEER | SPACE TO PAUSE | GAZE OR CLICK TO START</div>
     </div>
     <button id="desktop-start-button">🎿 START SKIING 🎿</button>
 
@@ -139,6 +139,9 @@
             <a-box position="-0.15 0 0" width="0.05" height="0.01" depth="1.5" color="#ff2222"></a-box>
             <a-box position="0.15 0 0" width="0.05" height="0.01" depth="1.5" color="#ff2222"></a-box>
           </a-entity>
+
+          <!-- Player collision sphere (for debugging) -->
+          <a-sphere id="player-collision" position="0 0 0" radius="0.3" color="#0000ff" opacity="0.3"></a-sphere>
         </a-entity>
       </a-entity>
 

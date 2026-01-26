@@ -74,16 +74,16 @@ class InputHandler {
   }
 
   /**
-   * Check if player wants to jump (spacebar or in VR, gaze)
+   * Check if player wants to pause (spacebar)
    */
-  shouldJump() {
+  shouldPause() {
     return this.keys.space;
   }
 
   /**
-   * Reset jump state
+   * Reset pause state
    */
-  resetJump() {
+  resetPause() {
     this.keys.space = false;
   }
 }
