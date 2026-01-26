@@ -21,13 +21,39 @@
         border-radius: 8px;
       }
       .score { font-size: 24px; font-weight: bold; }
+      #desktop-start-button {
+        position: absolute;
+        bottom: 50px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 20px 40px;
+        font-size: 24px;
+        font-weight: bold;
+        background-color: #ff2222;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+        z-index: 10;
+        display: none;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        transition: all 0.2s;
+      }
+      #desktop-start-button:hover {
+        background-color: #ff4444;
+        transform: translateX(-50%) scale(1.05);
+      }
+      #desktop-start-button:active {
+        transform: translateX(-50%) scale(0.98);
+      }
     </style>
   </head>
   <body>
     <div id="ui">
       <div id="distance" class="score">Distance: 0m</div>
-      <div id="msg">GAZE AT THE RED BOX TO START</div>
+      <div id="msg">GAZE AT THE RED BOX TO START or CLICK START BUTTON</div>
     </div>
+    <button id="desktop-start-button">🎿 CLICK TO START 🎿</button>
 
     <!-- Added raycaster configuration to the scene -->
     <a-scene 
@@ -99,8 +125,12 @@
       let playerX = 0;
       let playerY = 0;
       let jumpVelocity = 0;
-      const gravity = -0.015;
+      const gravity = -0.012;  // Constant downhill pull
       let lastSpawnDistance = 0;  // Track last spawn distance precisely
+      let spawnedPositions = [];  // Track spawned obstacle positions
+      let keyboardLeft = false;  // Arrow key states
+      let keyboardRight = false;
+      const keyboardSteering = 0.15;  // Keyboard steering sensitivity
 
       const world = document.getElementById('world');
       const startNode = document.getElementById('start-node');
@@ -110,14 +140,37 @@
       const camera = document.getElementById('camera');
       const playerContainer = document.getElementById('player-container');
       const motionLines = document.getElementById('motion-lines');
+      const desktopStartButton = document.getElementById('desktop-start-button');
       let motionLineOffset = 0;
+      
+      // Show desktop start button by default
+      desktopStartButton.style.display = 'block';
 
-      // Use the 'click' event which is automatically fired by a-frame when fuseTimeout is reached
+      // VR: Use the 'click' event which is automatically fired by a-frame when fuseTimeout is reached
       startBox.addEventListener('click', function() {
         console.log("Start Box Clicked/Fused!");
         if (gameState !== 'PLAYING') {
           startGame();
         }
+      });
+      
+      // Desktop: Click to start button
+      desktopStartButton.addEventListener('click', function() {
+        console.log("Desktop Start Button Clicked!");
+        if (gameState !== 'PLAYING') {
+          startGame();
+        }
+      });
+      
+      // Keyboard controls for steering
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'ArrowLeft') keyboardLeft = true;
+        if (e.key === 'ArrowRight') keyboardRight = true;
+      });
+      
+      document.addEventListener('keyup', function(e) {
+        if (e.key === 'ArrowLeft') keyboardLeft = false;
+        if (e.key === 'ArrowRight') keyboardRight = false;
       });
 
       function startGame() {
@@ -128,6 +181,7 @@
         jumpVelocity = 0;
         lastSpawnDistance = 0;
         motionLineOffset = 0;
+        spawnedPositions = [];
         
         // Reset world
         world.innerHTML = '<a-plane id="ground" position="0 -1 -500" rotation="-90 0 0" width="100" height="2000" color="#ffffff"></a-plane><a-entity id="motion-lines"></a-entity>';
@@ -136,7 +190,9 @@
         // UI
         startNode.setAttribute('visible', 'false');
         startBox.classList.remove('interactive');
-        msgUI.innerText = "TILT HEAD TO STEER | HIT RAINBOWS TO JUMP";
+        startNode.parentNode.removeChild(startNode);  // Remove start box from scene entirely
+        desktopStartButton.style.display = 'none';  // Hide desktop button when game starts
+        msgUI.innerText = "ARROW KEYS TO STEER | HIT RAINBOWS TO JUMP";
         
         // Create initial motion lines
         createMotionLines();
@@ -160,11 +216,31 @@
       }
 
       function spawnEntity() {
+        // Check if we can spawn (no nearby obstacles)
+        const worldZPos = world.getAttribute('position').z || 0;
+        let canSpawn = true;
+        
+        // Clean up old positions
+        spawnedPositions = spawnedPositions.filter(pos => pos.z + worldZPos < 20);
+        
+        // Check spacing - minimum 15 units apart
+        const potentialZ = -80 - worldZPos;
+        for (let pos of spawnedPositions) {
+          if (Math.abs(pos.z - potentialZ) < 15) {
+            canSpawn = false;
+            break;
+          }
+        }
+        
+        if (!canSpawn) return;
+        
         const rng = Math.random();
         const obj = document.createElement('a-entity');
-        const x = (Math.random() - 0.5) * 30;
-        const z = -80 - (world.getAttribute('position').z || 0);  // Spawn further away (was -60)
+        const x = (Math.random() - 0.5) * 28;  // Leave margin on sides
+        const z = -80 - worldZPos;
         obj.setAttribute('position', `${x} -1 ${z}`);
+        
+        spawnedPositions.push({ x: x, z: z });
 
         if (rng < 0.75) {
           // Tree Obstacle
@@ -211,19 +287,29 @@
           distance += speed;
           distUI.innerText = `Distance: ${Math.floor(distance)}m`;
 
-          // Steering via Camera rotation (Z-axis tilt)
+          // Steering: Combine keyboard and VR head tilt
+          let steerAmount = 0;
+          
+          // Keyboard steering (arrow keys)
+          if (keyboardLeft) steerAmount -= keyboardSteering;
+          if (keyboardRight) steerAmount += keyboardSteering;
+          
+          // VR head tilt steering (if available)
           const rotation = camera.getAttribute('rotation');
-          playerX -= rotation.z * 0.008;
+          steerAmount -= rotation.z * 0.008;
+          
+          // Apply steering with bounds
+          playerX += steerAmount;
           playerX = Math.max(Math.min(playerX, 15), -15);
 
-          // Jump Physics
-          if (playerY > 0 || jumpVelocity > 0) {
-            jumpVelocity += gravity;
-            playerY += jumpVelocity;
-            if (playerY <= 0) {
-              playerY = 0;
-              jumpVelocity = 0;
-            }
+          // Gravity always pulls downward (into the hill)
+          jumpVelocity += gravity;
+          playerY += jumpVelocity;
+          
+          // Keep player on ground when not jumping
+          if (playerY <= 0) {
+            playerY = 0;
+            jumpVelocity = 0;
           }
 
           playerContainer.setAttribute('position', `${playerX} ${playerY} 0`);
