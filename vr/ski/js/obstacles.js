@@ -47,8 +47,10 @@ class ObstacleManager {
     const z = potentialZ;
 
     const rng = Math.random();
-    if (rng < 0.75) {
+    if (rng < 0.60) {
       this.spawnTree(x, z);
+    } else if (rng < 0.85) {
+      this.spawnRock(x, z);
     } else {
       this.spawnJumpRamp(x, z);
     }
@@ -88,6 +90,31 @@ class ObstacleManager {
       element: tree,
       type: 'tree',
       x, z
+    });
+  }
+
+  /**
+   * Spawn a rock obstacle (loaded from glB model)
+   */
+  spawnRock(x, z) {
+    const world = document.getElementById('world');
+    if (!world) return;
+
+    const rock = document.createElement('a-entity');
+    rock.setAttribute('position', `${x} 0 ${z}`);
+    rock.setAttribute('scale', '1.2 1.2 1.2');
+    rock.setAttribute('gltf-model', '#rock-model');
+    rock.classList.add('obstacle');
+    rock.setAttribute('data-type', 'rock');
+    rock.setAttribute('data-radius', '0.6');
+
+    world.appendChild(rock);
+    
+    this.obstacles.push({
+      element: rock,
+      type: 'rock',
+      x, z,
+      previousZ: z
     });
   }
 

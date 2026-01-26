@@ -212,6 +212,14 @@ class SkiFreeGame {
           }
           this.gameOver('CRASHED INTO TREE!');
         }
+      } else if (obs.type === 'rock') {
+        const rockRadius = 0.6;
+        if (lateralDistance < (playerRadius + rockRadius)) {
+          if (GAME_CONFIG.debug.showCollisionLogs) {
+            console.log(`[HIT] Rock! Distance: ${lateralDistance.toFixed(2)} < ${(playerRadius + rockRadius).toFixed(2)}`);
+          }
+          this.gameOver('CRASHED INTO ROCK!');
+        }
       } else if (obs.type === 'jump-ramp') {
         const rampRadius = 3.5;
         if (lateralDistance < (playerRadius + rampRadius) && playerY < 0.3) {
