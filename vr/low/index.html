@@ -9,7 +9,7 @@
   <!-- A-Frame -->
   <script src="../../vendor/aframe-1.5.0.min.js"></script>
   <!-- Simplex Noise for terrain generation -->
-  <script src="https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.min.js" type="module"></script>
+  <script src="../../vendor/simplex-noise.min.js" type="module"></script>
   <style>
     .hud-shadow { text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
   </style>
@@ -51,7 +51,7 @@
 
   <script type="module">
     // Import simplex-noise from module script tag
-    import { createNoise2D } from 'https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.min.js';
+    import { createNoise2D } from '../../vendor/simplex-noise.min.js';
 
     // Utility: clamp
     const clamp = (v, min, max) => Math.max(min, Math.min(max, v));

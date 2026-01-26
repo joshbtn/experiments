@@ -47,6 +47,22 @@ const libraries = [
     url: 'https://cdn.tailwindcss.com/3.4.1',
     filename: 'tailwindcss.min.js'
   }
+  ,
+  {
+    name: 'simplex-noise 4.0.1 (ESM)',
+    url: 'https://cdn.jsdelivr.net/npm/simplex-noise@4.0.1/dist/esm/simplex-noise.min.js',
+    filename: 'simplex-noise.min.js'
+  },
+  {
+    name: 'three OrbitControls (0.128.0)',
+    url: 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js',
+    filename: 'OrbitControls.js'
+  },
+  {
+    name: 'three TeapotGeometry (0.128.0)',
+    url: 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TeapotGeometry.js',
+    filename: 'TeapotGeometry.js'
+  }
 ];
 
 /**
