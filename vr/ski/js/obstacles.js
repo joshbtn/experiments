@@ -66,14 +66,6 @@ class ObstacleManager {
     tree.classList.add('obstacle');
     tree.setAttribute('data-type', 'tree');
     tree.setAttribute('data-radius', '0.8');
-    
-    // Collision sphere for physics detection
-    const collider = document.createElement('a-sphere');
-    collider.setAttribute('radius', '0.8');
-    collider.setAttribute('position', '0 0.8 0');
-    collider.setAttribute('visible', 'false');
-    collider.classList.add('tree-collider');
-    tree.appendChild(collider);
 
     // Trunk
     const trunk = document.createElement('a-cylinder');
@@ -90,7 +82,6 @@ class ObstacleManager {
     leaves.setAttribute('color', '#1b4d3e');
     tree.appendChild(leaves);
 
-    tree.setAttribute('static-body', '');
     world.appendChild(tree);
     
     this.obstacles.push({
@@ -112,14 +103,6 @@ class ObstacleManager {
     ramp.classList.add('jump-ramp');
     ramp.setAttribute('data-type', 'jump-ramp');
     ramp.setAttribute('data-width', '6');
-    
-    // Collision sphere for physics detection
-    const collider = document.createElement('a-sphere');
-    collider.setAttribute('radius', '3.5');
-    collider.setAttribute('position', '0 0.5 1');
-    collider.setAttribute('visible', 'false');
-    collider.classList.add('ramp-collider');
-    ramp.appendChild(collider);
 
     const colors = ['#ff0000', '#ff7f00', '#ffff00', '#00ff00', '#0000ff'];
     colors.forEach((color, i) => {
@@ -132,7 +115,6 @@ class ObstacleManager {
       ramp.appendChild(strip);
     });
 
-    ramp.setAttribute('static-body', '');
     world.appendChild(ramp);
     
     this.obstacles.push({

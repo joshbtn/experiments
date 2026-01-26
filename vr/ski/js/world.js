@@ -48,7 +48,6 @@ class WorldManager {
     plane.setAttribute('width', '200');
     plane.setAttribute('height', '2000');
     plane.setAttribute('color', '#ffffff');
-    plane.setAttribute('static-body', '');
 
     world.appendChild(plane);
     this.groundPlanes.push({ id: planeId, z: zPos });
