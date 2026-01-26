@@ -70,7 +70,7 @@ const GAME_CONFIG = {
     gameOverMessageFormat: '{reason}<br>Distance: {distance}m | Best: {best}m'
   },
 
-  // Debug
+  // Debug Settings
   debug: {
     enabled: false,
     logPhysics: false,

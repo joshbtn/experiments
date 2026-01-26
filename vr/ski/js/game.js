@@ -138,7 +138,7 @@ class SkiFreeGame {
 
     // Update systems (obstacles move toward player)
     this.world.updateMotionLines(speed * forwardFactor);
-    this.obstacles.update(this.distance, speed * forwardFactor, this.player.position.x);
+    this.obstacles.update(this.distance, speed * forwardFactor);
 
     // Update UI
     this.ui.distance.innerText = `Distance: ${Math.floor(this.distance)}m`;
@@ -154,12 +154,6 @@ class SkiFreeGame {
       `${this.player.position.x} ${this.player.position.y} 0`
     );
 
-    // Update player collision sphere position for debugging
-    const playerCollisionSphere = document.getElementById('player-collision');
-    if (playerCollisionSphere) {
-      playerCollisionSphere.setAttribute('position', `0 ${this.player.position.y} 0`);
-    }
-
     // World container stays centered - obstacles move relative to player
     this.ui.world.setAttribute('position', {
       x: -this.player.position.x,
@@ -169,106 +163,61 @@ class SkiFreeGame {
   }
 
   /**
-   * Check collisions with obstacles
+   * Check collisions using swept-sphere collision detection
+   * Professional approach: checks if obstacle crossed the player plane between frames
    */
   checkCollisions() {
     const obstacles = this.obstacles.getObstacles();
+    const playerX = this.player.position.x;
+    const playerY = this.player.position.y;
+    const playerRadius = 0.6;
     
-    if (obstacles.length === 0) {
-      console.log('[CHECK] No obstacles to check');
-      return;
-    }
-    
-    console.log(`[CHECK] Checking ${obstacles.length} obstacles, player at (${this.player.position.x.toFixed(2)}, ${this.player.position.y.toFixed(2)}, 0)`);
-
     obstacles.forEach(obs => {
-      if (obs.type === 'tree') {
-        this.checkTreeCollision(obs);
-      } else if (obs.type === 'jump-ramp') {
-        this.checkRampCollision(obs);
+      // Track previous Z position for swept collision detection
+      const currentZ = obs.z;
+      const previousZ = obs.previousZ !== undefined ? obs.previousZ : currentZ;
+      
+      // Swept collision: check if obstacle crossed the player plane (z=0) this frame
+      const crossedPlane = (previousZ < 0 && currentZ >= 0) || 
+                          (previousZ >= 0 && currentZ < 0) ||
+                          Math.abs(currentZ) < 3.0; // Within collision zone
+      
+      if (!crossedPlane) {
+        obs.previousZ = currentZ;
+        return; // Not in collision range yet
       }
+      
+      // CRITICAL FIX: Obstacles are inside world container which is offset by -player.x
+      // Visual obstacle position = world.position.x + obs.x = -player.x + obs.x
+      // Player visual position = player.position.x
+      // So visual distance is: player.x - (-player.x + obs.x) = 2*player.x - obs.x
+      // But simpler: since world is offset, obstacle visual X = obs.x - player.x in camera space
+      // Actually, let's just check the VISUAL positions:
+      const obstacleVisualX = -playerX + obs.x; // world offset + obs position
+      const playerVisualX = playerX;
+      
+      const dx = playerVisualX - obstacleVisualX; // Both in same visual space now
+      const dy = playerY - 0;
+      const lateralDistance = Math.sqrt(dx * dx + dy * dy);
+      
+      console.log(`[COLLISION CHECK] Visual: Obs(${obstacleVisualX.toFixed(1)}) vs Player(${playerVisualX.toFixed(1)}) = dist ${lateralDistance.toFixed(2)}`);
+      
+      if (obs.type === 'tree') {
+        const treeRadius = 0.8;
+        if (lateralDistance < (playerRadius + treeRadius)) {
+          console.log(`[HIT] Tree! Distance: ${lateralDistance.toFixed(2)} < ${(playerRadius + treeRadius).toFixed(2)}`);
+          this.gameOver('CRASHED INTO TREE!');
+        }
+      } else if (obs.type === 'jump-ramp') {
+        const rampRadius = 3.5;
+        if (lateralDistance < (playerRadius + rampRadius) && playerY < 0.3) {
+          console.log(`[JUMP] Ramp! Distance: ${lateralDistance.toFixed(2)}`);
+          this.physics.applyJump(this.player, 0.42);
+        }
+      }
+      
+      obs.previousZ = currentZ;
     });
-  }
-
-  /**
-   * Check collision with tree using AABB (axis-aligned bounding box)
-   * All positions are in camera-relative space
-   */
-  checkTreeCollision(tree) {
-    const playerRadius = 0.3;
-    
-    // Camera (player) is always at visual x=0, tree is at tree.x - player.position.x visually
-    const treeVisualX = tree.x - this.player.position.x;
-    const treeVisualY = 0; // Tree base at ground level
-    
-    // Debug: log the offset calculation
-    console.log(`[TREE_CHECK] Tree world x=${tree.x.toFixed(1)}, Player world x=${this.player.position.x.toFixed(1)} -> Visual x=${treeVisualX.toFixed(1)}`);
-    
-    // AABB Check
-    const overlapX = Math.abs(0 - treeVisualX) < (tree.halfWidth + playerRadius);
-    const overlapY = Math.abs(this.player.position.y - treeVisualY) < (tree.halfHeight + playerRadius);
-    const overlapZ = Math.abs(tree.z) < (tree.halfDepth + playerRadius + 1.0);
-
-    if (overlapX || overlapY || overlapZ) {
-      console.log(`[COLLISION_TREE] x: ${overlapX} (${Math.abs(0-treeVisualX).toFixed(2)} < ${(tree.halfWidth + playerRadius).toFixed(2)}), y: ${overlapY} (${Math.abs(this.player.position.y - treeVisualY).toFixed(2)} < ${(tree.halfHeight + playerRadius).toFixed(2)}), z: ${overlapZ} (${Math.abs(tree.z).toFixed(2)} < ${(tree.halfDepth + playerRadius + 1.0).toFixed(2)})`);
-    }
-
-    // Simple distance-based sphere collision as fallback
-    const distToTree = Math.hypot(
-      treeVisualX,
-      this.player.position.y - treeVisualY,
-      tree.z
-    );
-    const collisionDistance = tree.halfWidth + playerRadius + 0.5; // Add margin
-    
-    if (distToTree < collisionDistance) {
-      console.log(`[SPHERE_COLLISION_TREE] Distance: ${distToTree.toFixed(2)} < ${collisionDistance.toFixed(2)}`);
-    }
-
-    if ((overlapX && overlapY && overlapZ) || distToTree < collisionDistance) {
-      console.log(`[CRASH] Tree collision triggered!`);
-      this.gameOver('CRASHED INTO TREE!');
-    }
-  }
-
-  /**
-   * Check collision with jump ramp using AABB
-   * All positions are in camera-relative space
-   */
-  checkRampCollision(ramp) {
-    const playerRadius = 0.3;
-    
-    // Camera (player) is always at visual x=0, ramp is at ramp.x - player.position.x visually
-    const rampVisualX = ramp.x - this.player.position.x;
-    const rampVisualY = 0; // Ramp base at ground level
-    
-    // AABB Check
-    const overlapX = Math.abs(0 - rampVisualX) < (ramp.halfWidth + playerRadius);
-    const overlapY = Math.abs(this.player.position.y - rampVisualY) < (ramp.halfHeight + playerRadius + 0.1);
-    const overlapZ = Math.abs(ramp.z) < (ramp.halfDepth + playerRadius + 1.0);
-
-    if (overlapX || overlapY || overlapZ) {
-      console.log(`[COLLISION_RAMP] x: ${overlapX} (${Math.abs(0-rampVisualX).toFixed(2)} < ${(ramp.halfWidth + playerRadius).toFixed(2)}), y: ${overlapY} (${Math.abs(this.player.position.y - rampVisualY).toFixed(2)} < ${(ramp.halfHeight + playerRadius + 0.1).toFixed(2)}), z: ${overlapZ} (${Math.abs(ramp.z).toFixed(2)} < ${(ramp.halfDepth + playerRadius + 1.0).toFixed(2)})`);
-    }
-
-    // Simple distance-based sphere collision as fallback
-    const distToRamp = Math.hypot(
-      rampVisualX,
-      this.player.position.y - rampVisualY,
-      ramp.z
-    );
-    const collisionDistance = ramp.halfWidth + playerRadius + 0.5;
-    
-    if (distToRamp < collisionDistance) {
-      console.log(`[SPHERE_COLLISION_RAMP] Distance: ${distToRamp.toFixed(2)} < ${collisionDistance.toFixed(2)}`);
-    }
-
-    // Trigger jump only when roughly on ground level
-    if ((overlapX && overlapY && overlapZ || distToRamp < collisionDistance) && this.player.position.y < 0.3) {
-      console.log(`[JUMP] Ramp collision triggered!`);
-      this.physics.applyJump(this.player, 0.42);
-      console.log('JUMP!');
-    }
   }
 
   /**
