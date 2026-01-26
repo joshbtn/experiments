@@ -27,9 +27,6 @@ class SkiFreeGame {
     // Player body
     this.player = this.physics.createPlayerBody();
 
-    // World position
-    this.worldZ = 0;
-
     // UI elements
     this.ui = {
       distance: document.getElementById('distance'),
@@ -123,13 +120,9 @@ class SkiFreeGame {
       this.input.resetJump();
     }
 
-    // Advance world
-    this.worldZ += speed;
-
-    // Update systems
+    // Update systems (obstacles move toward player)
     this.world.updateMotionLines(speed);
-    this.world.updateGroundPlanes(this.worldZ);
-    this.obstacles.update(this.distance, this.worldZ);
+    this.obstacles.update(this.distance, speed);
 
     // Update UI
     this.ui.distance.innerText = `Distance: ${Math.floor(this.distance)}m`;
@@ -139,18 +132,17 @@ class SkiFreeGame {
    * Render player and world positions
    */
   render() {
-    // Update player position
+    // Update player position (stays at origin in z, moves in x/y only)
     this.ui.playerContainer.setAttribute(
       'position',
       `${this.player.position.x} ${this.player.position.y} 0`
     );
 
-    // Update world offset
-    const wPos = this.ui.world.getAttribute('position');
+    // World container stays centered - obstacles move relative to player
     this.ui.world.setAttribute('position', {
       x: -this.player.position.x,
       y: 0,
-      z: wPos.z + (this.worldZ - this.distance)
+      z: 0
     });
   }
 
@@ -176,8 +168,13 @@ class SkiFreeGame {
     const dx = Math.abs(this.player.position.x - tree.x);
     const treeRadius = 0.8;
     const playerRadius = 0.3;
+    const collisionZRange = 3.0; // Check when obstacle is near player (player at z=0)
 
-    if (dx < treeRadius + playerRadius && this.player.position.y < 0.5) {
+    // Player is at z=0, check if obstacle is close
+    if (dx < treeRadius + playerRadius && 
+        tree.z > -collisionZRange && 
+        tree.z < collisionZRange &&
+        this.player.position.y < 0.5) {
       this.gameOver('CRASHED INTO TREE!');
     }
   }
@@ -189,9 +186,13 @@ class SkiFreeGame {
     const dx = Math.abs(this.player.position.x - ramp.x);
     const rampWidth = 6;
     const playerRadius = 0.3;
+    const collisionZRange = 3.0; // Check when obstacle is near player
 
-    // Simple jump trigger
-    if (dx < rampWidth / 2 + playerRadius && this.player.position.y < 0.2) {
+    // Player is at z=0, trigger jump when ramp is close
+    if (dx < rampWidth / 2 + playerRadius && 
+        ramp.z > -collisionZRange && 
+        ramp.z < collisionZRange &&
+        this.player.position.y < 0.2) {
       this.physics.applyJump(this.player, 0.42);
       console.log('JUMP!');
     }

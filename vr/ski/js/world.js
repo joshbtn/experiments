@@ -22,16 +22,17 @@ class WorldManager {
     // Clear existing ground
     this.groundPlanes = [];
 
-    // Create initial ground plane
-    this.spawnGroundPlane(0);
-    this.spawnGroundPlane(-500);
+    // Create ground planes centered around player origin
+    this.spawnGroundPlane(0);      // Player's position
+    this.spawnGroundPlane(-500);   // In front
+    this.spawnGroundPlane(500);    // Behind
 
     // Create motion lines for visual feedback
     this.createMotionLines();
   }
 
   /**
-   * Spawn a ground plane at specific z position
+   * Spawn a ground plane at specific z position (static, player-relative)
    */
   spawnGroundPlane(zPos) {
     const world = document.getElementById('world');
@@ -90,26 +91,11 @@ class WorldManager {
   }
 
   /**
-   * Update ground planes based on world position
+   * Update ground planes (static in player-relative world, so no updates needed)
    */
-  updateGroundPlanes(worldZ) {
-    // Check if we need new ground planes ahead
-    const nextPlaneZ = Math.ceil(worldZ / this.groundSpacing) * this.groundSpacing;
-    
-    if (nextPlaneZ - worldZ < 500) {
-      this.spawnGroundPlane(nextPlaneZ);
-    }
-
-    // Clean up old planes
-    this.groundPlanes = this.groundPlanes.filter(plane => {
-      const distanceBehind = worldZ - plane.z;
-      if (distanceBehind > 1000) {
-        const element = document.getElementById(plane.id);
-        if (element) element.parentNode.removeChild(element);
-        return false;
-      }
-      return true;
-    });
+  updateGroundPlanes() {
+    // Ground planes are static and tile infinitely
+    // No updates needed in player-relative coordinate system
   }
 
   /**

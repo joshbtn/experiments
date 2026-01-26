@@ -14,27 +14,35 @@ class ObstacleManager {
   }
 
   /**
-   * Spawn obstacles based on distance
+   * Spawn obstacles based on distance and move them toward player
    */
-  update(distance, worldZ) {
+  update(distance, speed) {
     if (distance - this.lastSpawnDistance > this.spawnInterval) {
-      this.spawn(worldZ);
+      this.spawn();
       this.lastSpawnDistance = distance;
     }
 
-    // Clean up old positions
-    this.spawnedPositions = this.spawnedPositions.filter(pos => pos.z + worldZ < 20);
+    // Move all obstacles toward player (player is at z=0)
+    this.obstacles.forEach(obs => {
+      obs.z += speed;
+      obs.element.setAttribute('position', `${obs.x} 0 ${obs.z}`);
+    });
+
+    // Clean up old positions that have passed the player
+    this.spawnedPositions = this.spawnedPositions.filter(pos => pos.z < 20);
 
     // Update and clean obstacles
-    this.updateObstacles(worldZ);
+    this.updateObstacles();
   }
 
   /**
    * Spawn a new random obstacle
    */
-  spawn(worldZ) {
-    // Check spacing
-    const potentialZ = -80 - worldZ;
+  spawn() {
+    // Spawn far in front of player (player is at z=0)
+    const potentialZ = -100;
+    
+    // Check spacing with recently spawned obstacles
     for (let pos of this.spawnedPositions) {
       if (Math.abs(pos.z - potentialZ) < this.minSpacing) {
         return; // Too close to previous obstacle
@@ -117,12 +125,10 @@ class ObstacleManager {
   /**
    * Update and clean obstacles
    */
-  updateObstacles(worldZ) {
+  updateObstacles() {
     this.obstacles = this.obstacles.filter(obs => {
-      const zRel = obs.z + worldZ;
-
-      // Remove if far behind
-      if (zRel > 50) {
+      // Remove if passed far behind player (player is at z=0)
+      if (obs.z > 50) {
         if (obs.element && obs.element.parentNode) {
           obs.element.parentNode.removeChild(obs.element);
         }
