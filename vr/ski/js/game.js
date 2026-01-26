@@ -66,7 +66,6 @@ class SkiFreeGame {
     this.state = 'PLAYING';
     this.distance = 0;
     this.player = this.physics.createPlayerBody();
-    this.worldZ = 0;
 
     // Reset systems
     this.world.reset();

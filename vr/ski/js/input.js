@@ -13,7 +13,9 @@ class InputHandler {
     
     this.camera = null;
     this.keyboardSensitivity = 0.15;
-    this.vrSensitivity = 0.008;
+    this.vrSensitivity = 0.004; // Tilt sensitivity (degrees to steer)
+    this.vrDeadzone = 2.0;       // Ignore tiny head tilt
+    this.vrMaxSteer = 0.08;      // Clamp max steer per frame
     
     this.setupEventListeners();
   }
@@ -64,7 +66,15 @@ class InputHandler {
     // VR head tilt input
     if (this.camera) {
       const rotation = this.camera.getAttribute('rotation');
-      steering -= rotation.z * this.vrSensitivity;
+      const roll = rotation ? rotation.z || 0 : 0; // A-Frame rotation in degrees
+      const absRoll = Math.abs(roll);
+
+      if (absRoll > this.vrDeadzone) {
+        const steerFromTilt = -(roll * this.vrSensitivity);
+        // Clamp to avoid over-steering from big head tilts
+        const clamped = Math.max(-this.vrMaxSteer, Math.min(this.vrMaxSteer, steerFromTilt));
+        steering += clamped;
+      }
     }
 
     return steering;

@@ -7,9 +7,8 @@ class ObstacleManager {
   constructor(scene) {
     this.scene = scene;
     this.obstacles = [];
-    this.spawnedPositions = [];
     this.lastSpawnDistance = 0;
-    this.spawnInterval = 8;
+    this.spawnInterval = 6; // spawn more often in player-relative space
     this.minSpacing = 15;
   }
 
@@ -28,9 +27,6 @@ class ObstacleManager {
       obs.element.setAttribute('position', `${obs.x} 0 ${obs.z}`);
     });
 
-    // Clean up old positions that have passed the player
-    this.spawnedPositions = this.spawnedPositions.filter(pos => pos.z < 20);
-
     // Update and clean obstacles
     this.updateObstacles();
   }
@@ -39,15 +35,12 @@ class ObstacleManager {
    * Spawn a new random obstacle
    */
   spawn() {
-    // Spawn far in front of player (player is at z=0)
-    const potentialZ = -100;
-    
-    // Check spacing with recently spawned obstacles
-    for (let pos of this.spawnedPositions) {
-      if (Math.abs(pos.z - potentialZ) < this.minSpacing) {
-        return; // Too close to previous obstacle
-      }
-    }
+    // Spawn in front of player (player is at z=0)
+    const potentialZ = -70 - Math.random() * 50; // random distance ahead
+
+    // Check spacing against existing obstacles
+    const tooClose = this.obstacles.some(obs => Math.abs(obs.z - potentialZ) < this.minSpacing);
+    if (tooClose) return;
 
     const x = (Math.random() - 0.5) * 50;
     const z = potentialZ;
@@ -59,7 +52,6 @@ class ObstacleManager {
       this.spawnJumpRamp(x, z);
     }
 
-    this.spawnedPositions.push({ x, z });
   }
 
   /**
@@ -156,7 +148,6 @@ class ObstacleManager {
       }
     });
     this.obstacles = [];
-    this.spawnedPositions = [];
     this.lastSpawnDistance = 0;
   }
 }
