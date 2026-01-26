@@ -130,8 +130,7 @@
       let spawnedPositions = [];  // Track spawned obstacle positions
       let keyboardLeft = false;  // Arrow key states
       let keyboardRight = false;
-      const keyboardSteering = 0.15;  // Keyboard steering sensitivity
-
+      const keyboardSteering = 0.15;  // Keyboard steering sensitivity      let lastJumpRampHit = -100;  // Track last jump ramp to prevent multiple triggers
       const world = document.getElementById('world');
       const startNode = document.getElementById('start-node');
       const startBox = document.getElementById('start-box');
@@ -282,12 +281,51 @@
         world.appendChild(obj);
       }
 
+      function spawnGroundPlane() {
+        // Continuously add ground planes ahead so we always have ground beneath us
+        const worldZPos = world.getAttribute('position').z || 0;
+        const nextGroundZ = -500 + (Math.floor(worldZPos / 500) + 1) * 500;
+        
+        // Check if we already have a ground plane at this position
+        const existingPlanes = world.querySelectorAll('a-plane[id^="ground-"]');
+        let hasNextPlane = false;
+        
+        existingPlanes.forEach(plane => {
+          const pPos = plane.getAttribute('position');
+          if (pPos && Math.abs(parseFloat(pPos.z) - nextGroundZ) < 10) {
+            hasNextPlane = true;
+          }
+        });
+        
+        if (!hasNextPlane) {
+          const newPlane = document.createElement('a-plane');
+          newPlane.setAttribute('id', `ground-${Math.floor(nextGroundZ)}`);
+          newPlane.setAttribute('position', `0 -1 ${nextGroundZ}`);
+          newPlane.setAttribute('rotation', '-90 0 0');
+          newPlane.setAttribute('width', '100');
+          newPlane.setAttribute('height', '2000');
+          newPlane.setAttribute('color', '#ffffff');
+          world.appendChild(newPlane);
+        }
+        
+        // Clean up old ground planes
+        existingPlanes.forEach(plane => {
+          const pPos = plane.getAttribute('position');
+          if (pPos) {
+            const pZ = parseFloat(pPos.z);
+            if (worldZPos - pZ > 600) {
+              plane.parentNode.removeChild(plane);
+            }
+          }
+        });
+      }
+
       function gameLoop() {
         if (gameState === 'PLAYING') {
           distance += speed;
           distUI.innerText = `Distance: ${Math.floor(distance)}m`;
 
-          // Steering: Combine keyboard and VR head tilt
+          // Steering: Combine keyboard and VR head tilt (no bounds - unlimited movement)
           let steerAmount = 0;
           
           // Keyboard steering (arrow keys)
@@ -298,9 +336,8 @@
           const rotation = camera.getAttribute('rotation');
           steerAmount -= rotation.z * 0.008;
           
-          // Apply steering with bounds
+          // Apply steering with NO bounds (unlimited left/right)
           playerX += steerAmount;
-          playerX = Math.max(Math.min(playerX, 15), -15);
 
           // Gravity always pulls downward (into the hill)
           jumpVelocity += gravity;
@@ -330,11 +367,14 @@
             });
           }
 
-          // Spawn obstacles every 12 units of distance (more frequent spawning)
-          if (distance - lastSpawnDistance > 12) {
+          // Spawn obstacles every 8 units of distance (more frequent!)
+          if (distance - lastSpawnDistance > 8) {
             spawnEntity();
             lastSpawnDistance = distance;
           }
+
+          // Keep ground planes spawned ahead as we move
+          spawnGroundPlane();
 
           // Collisions
           const worldZPos = world.getAttribute('position').z;
@@ -363,10 +403,15 @@
             const zRel = rPos.z + worldZPos;
             
             // Trigger jump when ramp is directly under player
-            if (zRel > -0.5 && zRel < 0.5 && playerY < 0.2) {
+            if (zRel > -0.6 && zRel < 0.4 && playerY < 0.1) {
               const rampWidth = parseFloat(ramp.getAttribute('data-width')) || 5;
-              if (Math.abs(rPos.x - playerX) < rampWidth / 2 + 0.3) {
-                jumpVelocity = 0.35; 
+              if (Math.abs(rPos.x - playerX) < rampWidth / 2 + 0.5) {
+                // Only trigger once per ramp to prevent multiple jumps
+                if (Math.abs(rPos.z - lastJumpRampHit) > 5) {
+                  jumpVelocity = 0.42;  // Stronger jump velocity
+                  lastJumpRampHit = rPos.z;
+                  console.log("JUMP!");
+                }
               }
             }
             
