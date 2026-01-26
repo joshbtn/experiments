@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>SkiFree VR - Downhill Jumps</title>
+    <script src="../../vendor/aframe.min.js"></script>
+    <style>
+      #ui {
+        position: absolute;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-family: 'Courier New', Courier, monospace;
+        color: #000;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 15px;
+        border: 3px solid #ff2222;
+        text-align: center;
+        z-index: 10;
+        pointer-events: none;
+        border-radius: 8px;
+      }
+      .score { font-size: 24px; font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <div id="ui">
+      <div id="distance" class="score">Distance: 0m</div>
+      <div id="msg">GAZE AT THE RED BOX TO START</div>
+    </div>
+
+    <!-- Added raycaster configuration to the scene -->
+    <a-scene 
+      renderer="antialias: true; colorManagement: true;"
+      fog="type: linear; color: #ffffff; near: 15; far: 60"
+      background="color: #ffffff"
+      raycaster="objects: .interactive">
+      
+      <a-assets>
+        <a-mixin id="rainbow-strip" geometry="primitive: box; width: 3; height: 0.1; depth: 0.5"></a-mixin>
+      </a-assets>
+
+      <!-- Player Rig -->
+      <a-entity id="rig" position="0 0 0" rotation="-15 0 0">
+        <a-entity id="player-container">
+          <a-camera id="camera" look-controls wasd-controls="enabled: false">
+            <!-- Fixed Cursor with proper fuse settings -->
+            <a-entity id="cursor"
+                      cursor="fuse: true; fuseTimeout: 2000"
+                      raycaster="objects: .interactive"
+                      position="0 0 -1"
+                      geometry="primitive: ring; radiusOuter: 0.03; radiusInner: 0.02"
+                      material="color: black; shader: flat"
+                      animation__fusing="property: scale; startEvents: fusing; dur: 2000; from: 1 1 1; to: 0.1 0.1 0.1"
+                      animation__reset="property: scale; startEvents: mouseleave; dur: 100; to: 1 1 1">
+            </a-entity>
+
+            <!-- Skis -->
+            <a-entity position="0 -0.8 -0.5" rotation="-5 0 0">
+              <a-box position="-0.15 0 0" width="0.05" height="0.01" depth="1.5" color="#ff2222"></a-box>
+              <a-box position="0.15 0 0" width="0.05" height="0.01" depth="1.5" color="#ff2222"></a-box>
+            </a-entity>
+          </a-camera>
+        </a-entity>
+      </a-entity>
+
+      <!-- The Menu Button -->
+      <a-entity id="start-node" position="0 0.5 -4" rotation="-15 0 0">
+        <a-box id="start-box" 
+               class="interactive"
+               width="1" height="1" depth="1" 
+               color="#ff2222"
+               animation="property: rotation; to: 0 360 0; dur: 5000; loop: true; easing: linear">
+        </a-box>
+        <a-text value="GAZE TO START" position="0 1.2 0" align="center" color="#000" scale="2 2 2"></a-text>
+      </a-entity>
+
+      <!-- Scrolling World -->
+      <a-entity id="world" rotation="-15 0 0">
+        <a-plane position="0 -1 -500" rotation="-90 0 0" width="100" height="2000" color="#ffffff"></a-plane>
+      </a-entity>
+
+      <a-light type="ambient" color="#CCC"></a-light>
+      <a-light type="directional" color="#FFF" intensity="0.6" position="-1 2 1"></a-light>
+    </a-scene>
+
+    <script>
+      let gameState = 'START';
+      let distance = 0;
+      let speed = 0.25;
+      let playerX = 0;
+      let playerY = 0;
+      let jumpVelocity = 0;
+      const gravity = -0.015;
+
+      const world = document.getElementById('world');
+      const startNode = document.getElementById('start-node');
+      const startBox = document.getElementById('start-box');
+      const distUI = document.getElementById('distance');
+      const msgUI = document.getElementById('msg');
+      const camera = document.getElementById('camera');
+      const playerContainer = document.getElementById('player-container');
+
+      // Use the 'click' event which is automatically fired by a-frame when fuseTimeout is reached
+      startBox.addEventListener('click', function() {
+        console.log("Start Box Clicked/Fused!");
+        if (gameState !== 'PLAYING') {
+          startGame();
+        }
+      });
+
+      function startGame() {
+        gameState = 'PLAYING';
+        distance = 0;
+        playerX = 0;
+        playerY = 0;
+        jumpVelocity = 0;
+        
+        // Reset world
+        world.innerHTML = '<a-plane position="0 -1 -500" rotation="-90 0 0" width="100" height="2000" color="#ffffff"></a-plane>';
+        world.setAttribute('position', '0 0 0');
+        
+        // UI
+        startNode.setAttribute('visible', 'false');
+        startBox.classList.remove('interactive');
+        msgUI.innerText = "TILT HEAD TO STEER | HIT RAINBOWS TO JUMP";
+      }
+
+      function spawnEntity() {
+        const rng = Math.random();
+        const obj = document.createElement('a-entity');
+        const x = (Math.random() - 0.5) * 30;
+        const z = -60 - (world.getAttribute('position').z || 0);
+        obj.setAttribute('position', `${x} -1 ${z}`);
+
+        if (rng < 0.75) {
+          // Tree Obstacle
+          const trunk = document.createElement('a-cylinder');
+          trunk.setAttribute('radius', '0.15'); trunk.setAttribute('height', '0.6'); trunk.setAttribute('color', '#4b3621');
+          obj.appendChild(trunk);
+          const leaves = document.createElement('a-cone');
+          leaves.setAttribute('radius-bottom', '0.8'); leaves.setAttribute('height', '2.5'); leaves.setAttribute('position', '0 1.2 0'); leaves.setAttribute('color', '#1b4d3e');
+          obj.appendChild(leaves);
+          obj.classList.add('obstacle');
+        } else {
+          // Rainbow Jump
+          const colors = ['#ff0000', '#ff7f00', '#ffff00', '#00ff00', '#0000ff'];
+          colors.forEach((c, i) => {
+            const strip = document.createElement('a-box');
+            strip.setAttribute('width', '5'); strip.setAttribute('height', '0.2'); strip.setAttribute('depth', '0.4');
+            strip.setAttribute('position', `0 0.1 ${i * 0.4}`);
+            strip.setAttribute('color', c);
+            obj.appendChild(strip);
+          });
+          obj.classList.add('jump-ramp');
+        }
+        world.appendChild(obj);
+      }
+
+      function gameLoop() {
+        if (gameState === 'PLAYING') {
+          distance += speed;
+          distUI.innerText = `Distance: ${Math.floor(distance)}m`;
+
+          // Steering via Camera rotation (Z-axis tilt)
+          const rotation = camera.getAttribute('rotation');
+          playerX -= rotation.z * 0.008;
+          playerX = Math.max(Math.min(playerX, 15), -15);
+
+          // Jump Physics
+          if (playerY > 0 || jumpVelocity > 0) {
+            jumpVelocity += gravity;
+            playerY += jumpVelocity;
+            if (playerY <= 0) {
+              playerY = 0;
+              jumpVelocity = 0;
+            }
+          }
+
+          playerContainer.setAttribute('position', `${playerX} ${playerY} 0`);
+
+          // Move the world container
+          const wPos = world.getAttribute('position');
+          world.setAttribute('position', { x: -playerX, y: 0, z: wPos.z + speed });
+
+          // Spawn obstacles periodically
+          if (Math.floor(distance) % 15 === 0 && distance > 0) {
+            // Simple check to prevent multi-spawning on same frame
+            if (!this.lastSpawnDist || Math.floor(distance) > this.lastSpawnDist) {
+                spawnEntity();
+                this.lastSpawnDist = Math.floor(distance);
+            }
+          }
+
+          // Collisions
+          const worldZPos = world.getAttribute('position').z;
+          
+          document.querySelectorAll('.obstacle').forEach(obs => {
+            const oPos = obs.getAttribute('position');
+            const zRel = oPos.z + worldZPos;
+            if (zRel > -0.6 && zRel < 0.6 && playerY < 0.5) {
+              if (Math.abs(oPos.x - playerX) < 1.0) endGame("CRASHED!");
+            }
+            if (zRel > 15) obs.parentNode.removeChild(obs);
+          });
+
+          document.querySelectorAll('.jump-ramp').forEach(ramp => {
+            const rPos = ramp.getAttribute('position');
+            const zRel = rPos.z + worldZPos;
+            if (zRel > -1 && zRel < 1 && playerY < 0.2) {
+              if (Math.abs(rPos.x - playerX) < 2.5) {
+                jumpVelocity = 0.35; 
+              }
+            }
+            if (zRel > 15) ramp.parentNode.removeChild(ramp);
+          });
+        }
+        requestAnimationFrame(gameLoop);
+      }
+
+      function endGame(reason) {
+        gameState = 'GAMEOVER';
+        msgUI.innerHTML = `<span style="color:red; font-size:18px">${reason}</span><br>GAZE AT BOX TO REPLAY`;
+        startNode.setAttribute('visible', 'true');
+        startBox.classList.add('interactive');
+        startNode.setAttribute('position', `${playerX} 0.5 -4`);
+      }
+
+      gameLoop();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "experiments",
+  "version": "1.0.0",
+  "description": "Single page app experiments with vendored libraries",
+  "scripts": {
+    "build-vendor": "node vendor-builder.js"
+  }
+}
