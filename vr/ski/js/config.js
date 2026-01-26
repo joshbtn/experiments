@@ -76,7 +76,8 @@ const GAME_CONFIG = {
     logPhysics: false,
     logCollisions: false,
     showBoundingBoxes: false,
-    showFPS: false
+    showFPS: false,
+    showCollisionLogs: false  // Show detailed collision check logs
   }
 };
 

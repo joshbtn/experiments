@@ -200,18 +200,24 @@ class SkiFreeGame {
       const dy = playerY - 0;
       const lateralDistance = Math.sqrt(dx * dx + dy * dy);
       
-      console.log(`[COLLISION CHECK] Visual: Obs(${obstacleVisualX.toFixed(1)}) vs Player(${playerVisualX.toFixed(1)}) = dist ${lateralDistance.toFixed(2)}`);
+      if (GAME_CONFIG.debug.showCollisionLogs) {
+        console.log(`[COLLISION CHECK] Visual: Obs(${obstacleVisualX.toFixed(1)}) vs Player(${playerVisualX.toFixed(1)}) = dist ${lateralDistance.toFixed(2)}`);
+      }
       
       if (obs.type === 'tree') {
         const treeRadius = 0.8;
         if (lateralDistance < (playerRadius + treeRadius)) {
-          console.log(`[HIT] Tree! Distance: ${lateralDistance.toFixed(2)} < ${(playerRadius + treeRadius).toFixed(2)}`);
+          if (GAME_CONFIG.debug.showCollisionLogs) {
+            console.log(`[HIT] Tree! Distance: ${lateralDistance.toFixed(2)} < ${(playerRadius + treeRadius).toFixed(2)}`);
+          }
           this.gameOver('CRASHED INTO TREE!');
         }
       } else if (obs.type === 'jump-ramp') {
         const rampRadius = 3.5;
         if (lateralDistance < (playerRadius + rampRadius) && playerY < 0.3) {
-          console.log(`[JUMP] Ramp! Distance: ${lateralDistance.toFixed(2)}`);
+          if (GAME_CONFIG.debug.showCollisionLogs) {
+            console.log(`[JUMP] Ramp! Distance: ${lateralDistance.toFixed(2)}`);
+          }
           this.physics.applyJump(this.player, 0.42);
         }
       }
