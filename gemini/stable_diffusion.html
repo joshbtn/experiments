@@ -3,235 +3,215 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AI Canvas v2.5 (Fixed Hardware Check)</title>
+    <title>Mobile AI Canvas Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        .animate-pulse-slow { animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-        canvas { touch-action: none; background: #020617; }
+        :root { --neon: #00f2ff; }
+        body { background-color: #030712; -webkit-user-select: none; }
+        .glass-panel { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.05); }
+        .neon-glow { box-shadow: 0 0 20px rgba(0, 242, 255, 0.15); }
+        .loader-bar { transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        canvas { background: #000; touch-action: none; border-radius: 1.5rem; }
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+        .animate-float { animation: float 4s ease-in-out infinite; }
     </style>
 </head>
-<body class="bg-slate-950 text-white font-sans overflow-x-hidden selection:bg-cyan-500/30">
+<body class="text-slate-200 font-sans overflow-hidden">
 
-    <div class="min-h-screen flex flex-col p-4 max-w-2xl mx-auto">
-        <!-- Header -->
-        <header class="flex items-center justify-between mb-4">
-            <div>
-                <h1 class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-                    AI Canvas
-                </h1>
-                <p id="status-text" class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Safe Environment Check</p>
+    <div class="h-screen flex flex-col p-4 max-w-lg mx-auto relative">
+        
+        <!-- Top Status Bar -->
+        <header class="flex items-center justify-between mb-4 px-1">
+            <div class="flex items-center gap-3">
+                <div id="status-orb" class="w-2.5 h-2.5 rounded-full bg-slate-700"></div>
+                <div>
+                    <h1 class="text-lg font-black tracking-tight text-white leading-none">AI CANVAS</h1>
+                    <p id="env-text" class="text-[8px] text-slate-500 uppercase tracking-widest mt-1">Standby Mode</p>
+                </div>
             </div>
-            <div id="gpu-badge" class="px-2 py-1 rounded bg-slate-800 text-[10px] font-mono border border-slate-700 text-slate-400">
-                OFFLINE
+            <div id="gpu-label" class="text-[8px] font-mono px-2 py-1 rounded-md bg-slate-900 border border-slate-800 text-slate-600">
+                PROBE REQ
             </div>
         </header>
 
-        <!-- Preview Area -->
-        <div class="relative w-full aspect-square bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl mb-4">
-            <!-- Loading Indicator -->
-            <div id="loading-overlay" class="hidden absolute inset-0 z-50 bg-slate-950/90 flex flex-col items-center justify-center p-10 text-center">
-                <div class="w-full h-1 bg-slate-800 rounded-full overflow-hidden mb-4">
-                    <div id="progress-bar" class="h-full bg-cyan-500 w-0 transition-all duration-300 shadow-[0_0_10px_#06b6d4]"></div>
+        <!-- Main Workspace -->
+        <div class="relative flex-grow flex items-center justify-center mb-4">
+            <!-- Loading/Setup Overlay -->
+            <div id="overlay" class="absolute inset-0 z-50 flex flex-col items-center justify-center p-8 text-center transition-all duration-700">
+                
+                <!-- Initial Wake Screen -->
+                <div id="wake-screen" class="space-y-6">
+                    <div class="w-20 h-20 mx-auto bg-gradient-to-tr from-cyan-500 to-blue-600 rounded-3xl flex items-center justify-center shadow-2xl animate-float">
+                        <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-white">Wake Local NPU</h2>
+                        <p class="text-xs text-slate-500 mt-2 px-4 leading-relaxed">Stable Diffusion Turbo runs entirely on your phone. No data leaves this device.</p>
+                    </div>
+                    <button id="wake-btn" class="w-full py-4 bg-white text-black text-xs font-black rounded-2xl hover:bg-cyan-50 transition-all uppercase tracking-[0.2em] shadow-lg">
+                        Initialize Hardware
+                    </button>
                 </div>
-                <p id="progress-text" class="text-[10px] text-cyan-400 font-mono">CALIBRATING...</p>
+
+                <!-- Progress View -->
+                <div id="progress-view" class="hidden w-full space-y-4">
+                    <div class="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
+                        <div id="progress-bar" class="h-full bg-cyan-400 loader-bar w-0"></div>
+                    </div>
+                    <p id="progress-status" class="text-[10px] text-cyan-400 font-mono font-bold tracking-widest uppercase">Optimizing Kernels...</p>
+                </div>
             </div>
-            
-            <canvas id="output-canvas" class="w-full h-full object-cover"></canvas>
+
+            <!-- Visualizer -->
+            <canvas id="main-canvas" class="shadow-2xl opacity-0 transition-opacity duration-1000"></canvas>
         </div>
 
-        <!-- Inputs -->
-        <div class="space-y-3">
-            <textarea 
-                id="prompt-input" 
-                placeholder="A transparent glass sculpture of a butterfly, glowing from within..." 
-                class="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-sm focus:ring-1 focus:ring-cyan-500 focus:outline-none transition-all placeholder:text-slate-700 resize-none h-24"
-            ></textarea>
+        <!-- Controls -->
+        <div id="ui-panel" class="space-y-3 opacity-20 pointer-events-none transition-all duration-700 translate-y-4">
+            <div class="glass-panel rounded-2xl p-1">
+                <textarea id="prompt" placeholder="A futuristic sneaker made of liquid chrome and purple light..." class="w-full bg-transparent p-4 text-sm focus:outline-none placeholder:text-slate-700 resize-none h-24 leading-snug"></textarea>
+            </div>
 
-            <button id="main-btn" disabled class="w-full bg-gradient-to-r from-cyan-600 to-blue-600 disabled:from-slate-900 disabled:to-slate-900 disabled:text-slate-600 disabled:border disabled:border-slate-800 py-4 rounded-xl font-bold shadow-lg shadow-cyan-500/10 active:scale-95 transition-all uppercase tracking-widest text-xs">
-                Checking Hardware...
+            <button id="gen-btn" class="w-full py-5 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-xl shadow-cyan-950/20 active:scale-95 transition-all">
+                Generate Image
             </button>
-
-            <!-- Logs -->
-            <div id="debug-log" class="p-3 bg-black/40 border border-slate-900 rounded-lg font-mono text-[9px] text-slate-600 h-28 overflow-y-auto">
-                <div class="text-cyan-800 font-bold mb-1">SYSTEM BOOT SEQUENCE</div>
-            </div>
         </div>
+
+        <!-- System Logs -->
+        <div id="log-rail" class="mt-4 p-3 bg-slate-900/30 border border-slate-900 rounded-xl font-mono text-[8px] text-slate-600 h-24 overflow-y-auto space-y-0.5">
+            <div>[SYSTEM] Local AI core initialized.</div>
+        </div>
+
     </div>
 
     <script type="module">
-        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
+        import { AutoPipelineForText2Image, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
 
-        const debug = document.getElementById('debug-log');
-        const log = (msg, type = 'info') => {
-            const time = new Date().toLocaleTimeString([], { hour12: false, minute: '2-digit', second: '2-digit' });
-            const colors = { 
-                info: 'text-slate-500', 
-                success: 'text-cyan-400', 
-                err: 'text-red-500 font-bold',
-                warn: 'text-amber-500'
-            };
-            debug.innerHTML += `<div class="${colors[type]}">[${time}] ${msg}</div>`;
-            debug.scrollTop = debug.scrollHeight;
+        const ctx = { pipe: null, busy: false };
+        
+        const dom = {
+            wake: document.getElementById('wake-btn'),
+            wakeScreen: document.getElementById('wake-screen'),
+            progressView: document.getElementById('progress-view'),
+            progressBar: document.getElementById('progress-bar'),
+            progressStatus: document.getElementById('progress-status'),
+            ui: document.getElementById('ui-panel'),
+            gen: document.getElementById('gen-btn'),
+            prompt: document.getElementById('prompt'),
+            logs: document.getElementById('log-rail'),
+            hw: document.getElementById('gpu-label'),
+            canvas: document.getElementById('main-canvas'),
+            orb: document.getElementById('status-orb')
         };
 
-        const elements = {
-            btn: document.getElementById('main-btn'),
-            status: document.getElementById('status-text'),
-            prompt: document.getElementById('prompt-input'),
-            progress: document.getElementById('progress-bar'),
-            progressText: document.getElementById('progress-text'),
-            overlay: document.getElementById('loading-overlay'),
-            canvas: document.getElementById('output-canvas'),
-            badge: document.getElementById('gpu-badge')
-        };
-
-        let pipe = null;
-
-        /** * SAFE HARDWARE CHECK 
-         * Fixes 'Cannot read property of undefined' by guarding every step.
-         */
-        async function initHardware() {
-            log("Verifying Secure Context (HTTPS)...");
-            if (!window.isSecureContext) {
-                log("FAIL: Not in HTTPS. WebGPU will be disabled.", "err");
-                elements.btn.innerText = "INSECURE CONTEXT (USE HTTPS)";
-                return;
-            }
-
-            log("Querying navigator.gpu...");
-            if (!navigator.gpu) {
-                log("FAIL: WebGPU API not found in this browser.", "err");
-                elements.btn.innerText = "BROWSER NOT SUPPORTED";
-                return;
-            }
-
-            try {
-                log("Requesting GPU Adapter...");
-                // Note: We use high-performance but fall back safely
-                const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-                
-                if (!adapter) {
-                    log("WARN: High-performance adapter refused. Requesting default...", "warn");
-                    const fallbackAdapter = await navigator.gpu.requestAdapter();
-                    if (!fallbackAdapter) throw new Error("No GPU adapter available.");
-                    return setupDevice(fallbackAdapter);
-                }
-                
-                await setupDevice(adapter);
-            } catch (e) {
-                log(`CRITICAL: ${e.message}`, "err");
-                elements.btn.innerText = "HARDWARE BLOCKED";
-            }
+        function log(msg, type = 'info') {
+            const colors = { info: 'text-slate-600', ok: 'text-cyan-400', err: 'text-red-500' };
+            const entry = document.createElement('div');
+            entry.className = colors[type];
+            entry.innerHTML = `<span class="opacity-30">${new Date().toLocaleTimeString([], {hour12:false, minute:'2-digit', second:'2-digit'})}</span> ${msg}`;
+            dom.logs.appendChild(entry);
+            dom.logs.scrollTop = dom.logs.scrollHeight;
         }
 
-        async function setupDevice(adapter) {
-            // SAFE ACCESS: Optional chaining and defaults
-            const adapterName = adapter?.name || "Generic WebGPU Device";
-            log(`SUCCESS: Found ${adapterName}`, "success");
+        // 1. Hardware Initialization (Triggered by user)
+        async function startBoot() {
+            log("User interaction detected. Booting...");
             
+            if (!navigator.gpu) {
+                log("Hardware Error: WebGPU not available. Check HTTPS.", "err");
+                dom.wake.innerText = "HTTPS / HARDWARE ERROR";
+                return;
+            }
+
             try {
-                const device = await adapter.requestDevice();
-                elements.badge.innerText = adapterName.toUpperCase();
-                elements.badge.className = "px-2 py-1 rounded bg-cyan-900/30 text-[10px] font-mono border border-cyan-500/50 text-cyan-400 shadow-[0_0_5px_rgba(6,182,212,0.3)]";
+                const adapter = await navigator.gpu.requestAdapter();
+                if (!adapter) throw new Error("GPU Driver Refused.");
                 
-                elements.btn.disabled = false;
-                elements.btn.innerText = "LOAD AI ENGINE (1.4GB)";
-                log("Logical device created. Environment stable.");
+                const device = await adapter.requestDevice();
+                dom.hw.innerText = (adapter.name || "NPU ACTIVE").toUpperCase();
+                dom.hw.classList.replace('text-slate-600', 'text-cyan-400');
+                dom.orb.classList.replace('bg-slate-700', 'bg-cyan-500');
+                log("NPU Handshake Successful.", "ok");
+
+                // Transition UI
+                dom.wakeScreen.classList.add('hidden');
+                dom.progressView.classList.remove('hidden');
+                
+                loadEngine();
             } catch (e) {
-                log("Device creation failed. Browser may be blocking WebGPU.", "err");
+                log(`Boot Failed: ${e.message}`, "err");
             }
         }
 
-        /**
-         * MODEL LOADING
-         */
-        async function loadAI() {
-            elements.btn.disabled = true;
-            elements.overlay.classList.remove('hidden');
-            log("Downloading Model: onnx-community/sd-turbo (Q4)");
-
+        // 2. Engine Loading
+        async function loadEngine() {
+            log("Loading SD-Turbo (4-bit Mobile Quant)...");
+            
             try {
                 env.allowLocalModels = false;
                 env.useBrowserCache = true;
 
-                // Explicitly targeting the text-to-image task
-                pipe = await pipeline('text-to-image', 'onnx-community/sd-turbo', {
+                ctx.pipe = await AutoPipelineForText2Image.from_pretrained('onnx-community/sd-turbo', {
                     device: 'webgpu',
-                    dtype: 'q4', 
+                    dtype: 'q4', // Critical for mobile memory limits
                     progress_callback: (p) => {
                         if (p.status === 'progress') {
-                            elements.progress.style.width = `${p.progress}%`;
-                            elements.progressText.innerText = `SHARD ${p.file.slice(-8)}: ${Math.round(p.progress)}%`;
+                            dom.progressBar.style.width = `${p.progress}%`;
+                            dom.progressStatus.innerText = `SYNCING: ${Math.round(p.progress)}%`;
                         }
                     }
                 });
 
-                log("AI Engine Warmup Complete.", "success");
-                elements.overlay.classList.add('hidden');
-                elements.btn.innerText = "GENERATE IMAGE";
-                elements.btn.disabled = false;
-                elements.status.innerText = "System Status: Online";
-
+                log("Neural Engine Online.", "ok");
+                dom.progressView.classList.add('hidden');
+                dom.ui.classList.remove('opacity-20', 'pointer-events-none', 'translate-y-4');
+                dom.canvas.classList.remove('opacity-0');
             } catch (e) {
-                log(`LOAD ERROR: ${e.message}`, "err");
-                elements.btn.innerText = "RETRY INITIALIZATION";
-                elements.btn.disabled = false;
-                elements.overlay.classList.add('hidden');
+                log(`Engine Crash: ${e.message}`, "err");
             }
         }
 
-        /**
-         * INFERENCE
-         */
-        async function generate() {
-            const prompt = elements.prompt.value.trim();
-            if (!prompt) {
-                log("Please enter a prompt.", "warn");
-                return;
-            }
+        // 3. Image Generation
+        async function runInference() {
+            const val = dom.prompt.value.trim();
+            if (!val || ctx.busy) return;
 
-            elements.btn.disabled = true;
-            elements.btn.innerText = "INFERENCE IN PROGRESS...";
-            log(`Running Local Inference...`);
+            ctx.busy = true;
+            dom.gen.disabled = true;
+            dom.gen.innerText = "INFERENCE IN PROGRESS...";
+            log(`Running Pipeline: "${val.slice(0, 20)}..."`);
 
             try {
                 const start = performance.now();
-                const output = await pipe(prompt, {
-                    num_inference_steps: 2, // Turbo only needs 1-2 steps
+                const output = await ctx.pipe(val, {
+                    num_inference_steps: 2, // Turbo needs only 2 steps
                     guidance_scale: 0.0,
                     width: 512,
                     height: 512
                 });
                 const end = performance.now();
                 
-                log(`SUCCESS: Frame generated in ${((end - start)/1000).toFixed(2)}s`, "success");
+                log(`Generated in ${((end - start)/1000).toFixed(2)}s`, "ok");
 
-                const ctx = elements.canvas.getContext('2d');
-                elements.canvas.width = 512;
-                elements.canvas.height = 512;
-                
-                const imgData = new ImageData(
-                    new Uint8ClampedArray(output.images[0].data),
-                    512, 512
-                );
-                ctx.putImageData(imgData, 0, 0);
+                const canvas = dom.canvas;
+                canvas.width = 512;
+                canvas.height = 512;
+                const d = canvas.getContext('2d');
+                const img = new ImageData(new Uint8ClampedArray(output.images[0].data), 512, 512);
+                d.putImageData(img, 0, 0);
 
             } catch (e) {
-                log(`GEN ERROR: ${e.message}`, "err");
+                log(`Gen Error: ${e.message}`, "err");
             } finally {
-                elements.btn.disabled = false;
-                elements.btn.innerText = "GENERATE AGAIN";
+                ctx.busy = false;
+                dom.gen.disabled = false;
+                dom.gen.innerText = "Generate Image";
             }
         }
 
-        // Action Bindings
-        elements.btn.addEventListener('click', () => {
-            if (!pipe) loadAI();
-            else generate();
-        });
-
-        // Start Diagnostics
-        initHardware();
+        // Event Listeners
+        dom.wake.addEventListener('click', startBoot);
+        dom.gen.addEventListener('click', runInference);
     </script>
 </body>
 </html>
