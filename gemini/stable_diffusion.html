@@ -2,415 +2,241 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mobile AI Canvas: Real SD-Turbo</title>
-    
-    <!-- Tailwind CSS -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>100% Local AI: Chat + Image Gen</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- React & ReactDOM -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    
-    <!-- Babel -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
+    <script type="module">
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.2.0';
+        window.transformers = { pipeline, env };
+    </script>
     <style>
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        body { background-color: #020617; color: #f1f5f9; overflow-x: hidden; }
-        
-        .scanline {
-            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2));
-            background-size: 100% 4px;
-            pointer-events: none;
+        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .user-blob { background: #2563eb; border-radius: 18px 18px 2px 18px; }
+        .ai-blob { background: #1e293b; border-radius: 18px 18px 18px 2px; border: 1px solid #334155; }
+        .loading-shimmer {
+            background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
         }
-        
-        @keyframes pulse-glow {
-            0%, 100% { box-shadow: 0 0 10px rgba(6,182,212,0.2); }
-            50% { box-shadow: 0 0 25px rgba(6,182,212,0.5); }
-        }
-        .animate-pulse-glow { animation: pulse-glow 2s infinite; }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
     </style>
 </head>
-<body>
-    <div id="root"></div>
+<body class="bg-[#020617] text-slate-100 min-h-screen flex flex-col font-sans selection:bg-blue-500/30">
 
-    <!-- WORKER CODE: The Engine Room -->
-    <script id="worker-code" type="javascript/worker">
-        // Import transformers.js v3 (WebGPU support)
-        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+    <!-- Navbar -->
+    <nav class="p-4 border-b border-white/5 flex flex-wrap gap-4 items-center justify-between glass sticky top-0 z-50">
+        <div class="flex items-center gap-2">
+            <div class="p-2 bg-blue-600 rounded-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></svg>
+            </div>
+            <span class="font-bold tracking-tight">On-Device Studio</span>
+        </div>
+        
+        <div class="flex gap-2">
+            <button id="load-llm" class="text-xs font-medium px-3 py-1.5 rounded-full border border-slate-700 hover:bg-slate-800 transition">
+                Load Chat (Llama)
+            </button>
+            <button id="load-img" class="text-xs font-medium px-3 py-1.5 rounded-full border border-slate-700 hover:bg-slate-800 transition">
+                Load Painter (Janus)
+            </button>
+        </div>
+    </nav>
 
-        // Skip local model checks, force remote download from HF Hub
-        env.allowLocalModels = false;
-        env.useBrowserCache = true;
-
-        let generator = null;
-        let modelId = 'Xenova/stable-diffusion-v1-5-quantized';
-
-        self.onmessage = async (event) => {
-            const { type, data } = event.data;
-
-            if (type === 'init_model') {
-                try {
-                    self.postMessage({ status: 'loading', message: 'Checking GPU compatibility...' });
-
-                    // Initialize the pipeline
-                    // This triggers the massive download sequence:
-                    // 1. Tokenizer
-                    // 2. Text Encoder
-                    // 3. UNet (The big one, ~1GB+)
-                    // 4. VAE Decoder
-                    
-                    generator = await pipeline('text-to-image', modelId, {
-                        quantized: true, // Crucial for mobile RAM
-                        progress_callback: (x) => {
-                            // Normalize progress across multiple files
-                            if(x.status === 'progress') {
-                                self.postMessage({ 
-                                    status: 'downloading', 
-                                    file: x.file, 
-                                    progress: x.progress,
-                                    loaded: x.loaded,
-                                    total: x.total
-                                });
-                            }
-                        }
-                    });
-
-                    self.postMessage({ status: 'ready', message: 'Stable Diffusion Loaded' });
-
-                } catch (e) {
-                    console.error("Worker Init Error", e);
-                    self.postMessage({ status: 'error', message: e.message });
-                }
-            }
-
-            if (type === 'generate') {
-                if (!generator) {
-                    self.postMessage({ status: 'error', message: 'Model not loaded' });
-                    return;
-                }
-
-                try {
-                    self.postMessage({ status: 'generating', message: 'Running Inference (20 steps)...' });
-                    
-                    // Run Inference
-                    // num_inference_steps: 20 is a good balance for v1-5 quantized
-                    const output = await generator(data.prompt, {
-                        num_inference_steps: 10, // Lower steps for "Turbo" feel on mobile
-                        guidance_scale: 7.5,
-                        callback_function: (step) => {
-                            self.postMessage({ status: 'generating', message: `Denoising Step ${step[0] + 1}...` });
-                        }
-                    });
-                    
-                    // The output is an object with an 'images' array containing Blob/Tensor
-                    // Transformers.js text-to-image output handling:
-                    let imageUrl = null;
-                    if (output && output.images && output.images.length > 0) {
-                        const image = output.images[0];
-                        // Convert RawImage to Blob URL
-                        const blob = await image.toBlob();
-                        imageUrl = URL.createObjectURL(blob);
-                    }
-
-                    self.postMessage({ status: 'complete', result: imageUrl });
-
-                } catch (e) {
-                    console.error("Inference Error", e);
-                    self.postMessage({ status: 'error', message: 'Inference Failed: ' + e.message });
-                }
-            }
-        };
-    </script>
-
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
-
-        // --- Utils ---
-        async function runWebGPUDiagnostic() {
-            if (!navigator.gpu) return { success: false, msg: "Not Supported (WASM only)" };
-            try {
-                const adapter = await navigator.gpu.requestAdapter();
-                if (!adapter) return { success: false, msg: "No Adapter" };
-                const info = await adapter.requestAdapterInfo();
-                return { 
-                    success: true, 
-                    msg: "Active", 
-                    info: info.device || "Generic GPU" 
-                };
-            } catch (e) {
-                return { success: false, msg: "Error" };
-            }
-        }
-
-        // --- Icons ---
-        const Icon = ({ path, size = 20, className = "" }) => (
-            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{path}</svg>
-        );
-        const Icons = {
-            Zap: () => <Icon path={<><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></>} />,
-            Cpu: () => <Icon path={<><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line></>} />,
-            Download: () => <Icon path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></>} />,
-            Settings: () => <Icon path={<><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></>} />
-        };
-
-        function App() {
-            const [prompt, setPrompt] = useState('An astronaut riding a horse on mars, photorealistic');
-            const [status, setStatus] = useState('Ready');
-            const [detailedStatus, setDetailedStatus] = useState('');
-            const [finalImage, setFinalImage] = useState(null);
-            const [gpuInfo, setGpuInfo] = useState({ success: false, msg: 'Init...', info: '' });
-            
-            // Real Model State
-            const [useRealModel, setUseRealModel] = useState(false);
-            const [modelLoaded, setModelLoaded] = useState(false);
-            const [downloadProgress, setDownloadProgress] = useState(0); // Overall
-            const [fileProgress, setFileProgress] = useState({}); // Per file
-            const [isGenerating, setIsGenerating] = useState(false);
-
-            const workerRef = useRef(null);
-
-            // Init
-            useEffect(() => {
-                runWebGPUDiagnostic().then(setGpuInfo);
-
-                // Setup Worker
-                const blob = new Blob([document.getElementById('worker-code').textContent], { type: 'application/javascript' });
-                const worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
-                workerRef.current = worker;
-
-                worker.onmessage = (e) => {
-                    const { status, message, file, progress, result } = e.data;
-                    
-                    if (status === 'loading') {
-                        setStatus(message);
-                    }
-                    if (status === 'downloading') {
-                        // Intelligent Progress Tracking
-                        setFileProgress(prev => ({ ...prev, [file]: progress }));
-                        setStatus('Downloading AI Models...');
-                        setDetailedStatus(`${file} (${Math.round(progress)}%)`);
-                        
-                        // Heuristic for total progress (approximate)
-                        // UNet is largest (~80%), others are small
-                        // This is just a visual estimation for the user
-                        setDownloadProgress(Math.round(progress));
-                    }
-                    if (status === 'ready') {
-                        setStatus('SD v1.5 Ready');
-                        setDetailedStatus('Waiting for prompt');
-                        setModelLoaded(true);
-                        setDownloadProgress(100);
-                    }
-                    if (status === 'generating') {
-                        setStatus('Generating...');
-                        setDetailedStatus(message);
-                    }
-                    if (status === 'complete') {
-                        setIsGenerating(false);
-                        setStatus('Done');
-                        setDetailedStatus('Rendering Complete');
-                        if (result) setFinalImage(result);
-                    }
-                    if (status === 'error') {
-                        setIsGenerating(false);
-                        setStatus('Error');
-                        setDetailedStatus(message);
-                        alert(`Model Error: ${message}\n\nNote: This requires a device with ~8GB RAM.`);
-                    }
-                };
-
-                return () => worker.terminate();
-            }, []);
-
-            const toggleRealModel = () => {
-                if (!useRealModel) {
-                    if (confirm("⚠️ DOWNLOAD WARNING ⚠️\n\nThis will download ~2GB of model data to your browser cache.\n\nIt works best on Wi-Fi and requires a powerful device (e.g., iPhone 15, Laptop with GPU).\n\nContinue?")) {
-                        setUseRealModel(true);
-                        setFinalImage(null);
-                        setModelLoaded(false);
-                        workerRef.current.postMessage({ type: 'init_model' });
-                    }
-                } else {
-                    setUseRealModel(false);
-                    setStatus('Ready (Simulation Mode)');
-                    setDetailedStatus('');
-                }
-            };
-
-            const handleGenerate = () => {
-                setIsGenerating(true);
-                setFinalImage(null);
-
-                if (useRealModel) {
-                    if (!modelLoaded) {
-                         alert("Please wait for model to finish downloading.");
-                         setIsGenerating(false);
-                         return;
-                    }
-                    workerRef.current.postMessage({ type: 'generate', data: { prompt } });
-                } else {
-                    // Simulation
-                    setStatus('Simulating...');
-                    setDetailedStatus('Procedural generation');
-                    setTimeout(() => {
-                        // Basic canvas drawing as fallback
-                        const canvas = document.createElement('canvas');
-                        canvas.width = 512; canvas.height = 512;
-                        const ctx = canvas.getContext('2d');
-                        ctx.fillStyle = '#111'; ctx.fillRect(0,0,512,512);
-                        ctx.fillStyle = '#06b6d4'; 
-                        ctx.font = '20px monospace';
-                        ctx.fillText('Simulation Mode: ' + prompt.slice(0, 20) + '...', 20, 256);
-                        
-                        // Add some noise
-                        for(let i=0; i<1000; i++) {
-                            ctx.fillStyle = `rgba(6, 182, 212, ${Math.random()})`;
-                            ctx.fillRect(Math.random()*512, Math.random()*512, 2, 2);
-                        }
-                        
-                        setFinalImage(canvas.toDataURL());
-                        setIsGenerating(false);
-                        setStatus('Finished');
-                    }, 1000);
-                }
-            };
-
-            return (
-                <div className="min-h-screen flex flex-col items-center pb-20 relative font-sans">
-                    {/* Background */}
-                    <div className="absolute inset-0 bg-slate-950 z-0"></div>
-                    <div className="absolute inset-0 scanline z-0 opacity-20"></div>
-
-                    {/* Navbar */}
-                    <div className="w-full z-10 p-4 border-b border-white/5 bg-slate-900/80 backdrop-blur-md flex justify-between items-center sticky top-0">
-                        <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-lg bg-cyan-500 flex items-center justify-center text-black shadow-lg shadow-cyan-500/20">
-                                <Icons.Zap />
-                            </div>
-                            <div>
-                                <h1 className="font-bold text-sm tracking-widest text-white">AI CANVAS</h1>
-                                <div className="flex items-center gap-1">
-                                    <div className={`w-1.5 h-1.5 rounded-full ${gpuInfo.success ? 'bg-green-500' : 'bg-amber-500'}`}></div>
-                                    <span className="text-[10px] text-slate-400 font-mono">{gpuInfo.info}</span>
-                                </div>
-                            </div>
-                        </div>
-                        <button onClick={() => alert('App Info:\nUsing Xenova/transformers (v2.17)\nModel: SD v1.5 Quantized\nExecution: WebGPU/WASM')} className="p-2 text-slate-500 hover:text-white transition-colors">
-                            <Icons.Settings />
-                        </button>
-                    </div>
-
-                    <main className="w-full max-w-lg z-10 px-4 mt-6 flex-1 flex flex-col gap-4">
-                        
-                        {/* Control Panel */}
-                        <div className="bg-slate-900/50 border border-white/5 p-4 rounded-xl flex items-center justify-between">
-                            <div className="space-y-1">
-                                <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Engine Status</div>
-                                <div className={`text-xs font-mono ${useRealModel ? 'text-cyan-400' : 'text-slate-500'}`}>
-                                    {useRealModel ? 'Stable Diffusion v1.5' : 'Simulation Mode'}
-                                </div>
-                            </div>
-                            <button 
-                                onClick={toggleRealModel}
-                                className={`text-xs px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
-                                    useRealModel 
-                                    ? 'bg-cyan-500/10 border border-cyan-500/50 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.2)]' 
-                                    : 'bg-slate-800 border border-white/10 text-slate-300 hover:bg-slate-700'
-                                }`}
-                            >
-                                {useRealModel ? 'ACTIVE' : 'ENABLE REAL AI'}
-                            </button>
-                        </div>
-
-                        {/* Image Viewer */}
-                        <div className="relative aspect-square w-full bg-black rounded-2xl border border-white/10 overflow-hidden shadow-2xl group">
-                            {finalImage ? (
-                                <img src={finalImage} className="w-full h-full object-contain animate-in fade-in zoom-in duration-500" />
-                            ) : (
-                                <div className="w-full h-full flex flex-col items-center justify-center text-slate-600 space-y-4 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 to-black">
-                                    {isGenerating || (useRealModel && !modelLoaded) ? (
-                                        <div className="flex flex-col items-center w-3/4 gap-4">
-                                            <div className="relative w-16 h-16">
-                                                <div className="absolute inset-0 border-4 border-slate-800 rounded-full"></div>
-                                                <div className="absolute inset-0 border-4 border-t-cyan-500 rounded-full animate-spin"></div>
-                                            </div>
-                                            <div className="text-center space-y-1">
-                                                <div className="text-xs font-bold text-cyan-400 animate-pulse">{status}</div>
-                                                <div className="text-[10px] text-slate-500 font-mono truncate max-w-[200px] mx-auto">{detailedStatus}</div>
-                                            </div>
-                                            {/* Download Progress Bar */}
-                                            {useRealModel && !modelLoaded && (
-                                                <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
-                                                    <div 
-                                                        className="h-full bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.8)] transition-all duration-300" 
-                                                        style={{width: `${downloadProgress}%`}}
-                                                    ></div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <Icons.Cpu size={48} className="text-slate-800" />
-                                            <span className="text-xs font-medium tracking-widest opacity-50">READY TO GENERATE</span>
-                                        </>
-                                    )}
-                                </div>
-                            )}
-                            
-                            {/* Badges */}
-                            <div className="absolute top-3 left-3 flex gap-2">
-                                <div className="px-2 py-1 bg-black/60 backdrop-blur-md rounded text-[10px] font-mono text-slate-300 border border-white/5">
-                                    {useRealModel ? 'ONNX INT8' : 'SIMULATION'}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Input Area */}
-                        <div className="space-y-3">
-                            <textarea 
-                                value={prompt}
-                                onChange={e => setPrompt(e.target.value)}
-                                className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-4 text-sm text-white focus:outline-none focus:border-cyan-500/50 focus:bg-slate-900 transition-all resize-none h-24 placeholder:text-slate-600"
-                                placeholder="Describe your image in detail..."
-                            ></textarea>
-                            
-                            <button 
-                                onClick={handleGenerate}
-                                disabled={isGenerating || (useRealModel && !modelLoaded)}
-                                className={`w-full py-4 rounded-xl font-bold text-sm tracking-wide flex items-center justify-center gap-2 transition-all transform active:scale-[0.98]
-                                    ${isGenerating 
-                                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
-                                        : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-lg shadow-cyan-900/20'
-                                    }`}
-                            >
-                                <Icons.Zap size={18} className={isGenerating ? "animate-pulse" : "fill-white"} />
-                                {isGenerating ? 'PROCESSING...' : 'GENERATE IMAGE'}
-                            </button>
-                        </div>
-
-                        {/* Quick Prompts */}
-                        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-4 pt-2">
-                            {['Cyberpunk City', 'Watercolor Flower', 'Pixel Art Character', 'Space Nebula'].map(tag => (
-                                <button 
-                                    key={tag} 
-                                    onClick={() => setPrompt(tag)} 
-                                    className="text-[10px] px-3 py-1.5 rounded-lg bg-slate-800 border border-white/5 hover:bg-slate-700 hover:border-white/20 whitespace-nowrap text-slate-300 transition-colors"
-                                >
-                                    {tag}
-                                </button>
-                            ))}
-                        </div>
-
-                    </main>
+    <!-- Main Content -->
+    <main class="flex-grow flex flex-col max-w-4xl mx-auto w-full p-4 gap-6">
+        
+        <div id="welcome-screen" class="my-auto text-center space-y-4">
+            <h2 class="text-4xl font-extrabold text-white">Truly Private AI</h2>
+            <p class="text-slate-400 max-w-lg mx-auto">Running entirely in your browser via WebGPU. No cloud, no subscription, no tracking.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-left mt-8">
+                <div class="p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
+                    <h3 class="font-bold text-blue-400 mb-2">Llama-3.2 (Text)</h3>
+                    <p class="text-xs text-slate-500">Perfect for lightning-fast local chat and reasoning.</p>
                 </div>
-            );
+                <div class="p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
+                    <h3 class="font-bold text-purple-400 mb-2">Janus-1.3B (Image)</h3>
+                    <p class="text-xs text-slate-500">Generates images locally using WebGPU shaders.</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="chat-history" class="hidden flex-grow space-y-6 overflow-y-auto pb-24"></div>
+
+        <!-- Input Section -->
+        <div class="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#020617] via-[#020617]/90 to-transparent">
+            <div class="max-w-4xl mx-auto glass p-2 rounded-3xl shadow-2xl flex flex-col gap-2">
+                <div class="flex items-center gap-2">
+                    <textarea id="prompt-area" rows="1" class="w-full bg-transparent p-3 outline-none resize-none text-sm" placeholder="Ask a question or describe an image..."></textarea>
+                    <button id="send-btn" class="p-3 bg-blue-600 rounded-2xl hover:scale-105 transition disabled:opacity-20 disabled:grayscale" disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                    </button>
+                </div>
+                <div class="flex justify-between items-center px-2 pb-1">
+                    <div id="mode-badge" class="text-[10px] uppercase font-bold tracking-widest text-slate-500">Standby</div>
+                    <div id="vram-info" class="text-[10px] text-slate-500 flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-slate-700" id="status-dot"></span>
+                        WebGPU Ready
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Global Loader -->
+    <div id="loader-overlay" class="hidden fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
+        <div class="w-full max-w-sm space-y-4">
+            <div class="flex justify-between text-sm font-bold">
+                <span id="loader-msg">Initializing Shaders...</span>
+                <span id="loader-perc">0%</span>
+            </div>
+            <div class="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
+                <div id="loader-progress" class="h-full bg-blue-500 transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <p class="text-[10px] text-slate-500 uppercase tracking-tighter text-center">First load takes longer as model files are cached locally</p>
+        </div>
+    </div>
+
+    <script type="module">
+        const { pipeline, env } = window.transformers;
+
+        let activePipeline = null;
+        let activeTask = null; // 'chat' or 'image'
+        let isProcessing = false;
+
+        const chatHistory = document.getElementById('chat-history');
+        const welcomeScreen = document.getElementById('welcome-screen');
+        const promptArea = document.getElementById('prompt-area');
+        const sendBtn = document.getElementById('send-btn');
+        const loaderOverlay = document.getElementById('loader-overlay');
+        const loaderProgress = document.getElementById('loader-progress');
+        const loaderMsg = document.getElementById('loader-msg');
+        const loaderPerc = document.getElementById('loader-perc');
+        const modeBadge = document.getElementById('mode-badge');
+        const statusDot = document.getElementById('status-dot');
+
+        promptArea.addEventListener('input', () => {
+            promptArea.style.height = 'auto';
+            promptArea.style.height = promptArea.scrollHeight + 'px';
+        });
+
+        async function loadModel(task, modelId) {
+            try {
+                loaderOverlay.classList.remove('hidden');
+                loaderMsg.innerText = `Fetching ${task.toUpperCase()} Model...`;
+                
+                env.allowLocalModels = false; // Set to true if you are hosting models locally like Simon
+                
+                // Pipeline configuration
+                const config = {
+                    device: 'webgpu',
+                    progress_callback: (p) => {
+                        if (p.status === 'progress') {
+                            loaderProgress.style.width = `${p.progress}%`;
+                            loaderPerc.innerText = `${Math.round(p.progress)}%`;
+                        }
+                    }
+                };
+
+                // Janus for image, Llama for text
+                if (task === 'image') {
+                    config.dtype = 'q8'; // Janus 1.3B usually fits in 8-bit or 4-bit in browser
+                    activePipeline = await pipeline('text-to-image', modelId, config);
+                } else {
+                    config.dtype = 'q4';
+                    activePipeline = await pipeline('text-generation', modelId, config);
+                }
+
+                activeTask = task;
+                modeBadge.innerText = `${task} MODE ACTIVE`;
+                statusDot.classList.replace('bg-slate-700', 'bg-green-500');
+                sendBtn.disabled = false;
+                loaderOverlay.classList.add('hidden');
+            } catch (err) {
+                console.error(err);
+                loaderMsg.innerText = "Error: " + err.message;
+                setTimeout(() => loaderOverlay.classList.add('hidden'), 5000);
+            }
         }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        document.getElementById('load-llm').onclick = () => loadModel('chat', 'onnx-community/Llama-3.2-1B-Instruct-q4f16');
+        document.getElementById('load-img').onclick = () => loadModel('image', 'onnx-community/Janus-1.3B-ONNX');
+
+        function addMessage(role, content, isImage = false) {
+            if (welcomeScreen.style.display !== 'none') {
+                welcomeScreen.style.display = 'none';
+                chatHistory.classList.remove('hidden');
+            }
+
+            const wrapper = document.createElement('div');
+            wrapper.className = `flex ${role === 'user' ? 'justify-end' : 'justify-start'}`;
+            
+            const bubble = document.createElement('div');
+            bubble.className = `p-4 text-sm shadow-xl ${role === 'user' ? 'user-blob max-w-[80%]' : 'ai-blob max-w-[90%]'}`;
+            
+            if (isImage) {
+                const img = document.createElement('img');
+                img.src = content;
+                img.className = "rounded-lg w-full mb-2";
+                bubble.appendChild(img);
+                const caption = document.createElement('p');
+                caption.className = "text-[10px] text-slate-400 italic";
+                caption.innerText = "Generated on-device via WebGPU";
+                bubble.appendChild(caption);
+            } else {
+                bubble.innerText = content;
+            }
+
+            wrapper.appendChild(bubble);
+            chatHistory.appendChild(wrapper);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        async function process() {
+            const input = promptArea.value.trim();
+            if (!input || isProcessing) return;
+
+            isProcessing = true;
+            addMessage('user', input);
+            promptArea.value = '';
+            promptArea.style.height = 'auto';
+
+            // Floating "Thinking" indicator
+            const thinking = document.createElement('div');
+            thinking.className = 'flex justify-start';
+            thinking.innerHTML = `<div class="ai-blob p-4 text-xs italic opacity-50 flex gap-2 items-center">
+                <div class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                ${activeTask === 'image' ? 'Painting image...' : 'Thinking...'}
+            </div>`;
+            chatHistory.appendChild(thinking);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+
+            try {
+                if (activeTask === 'chat') {
+                    const output = await activePipeline(input, { max_new_tokens: 256 });
+                    thinking.remove();
+                    addMessage('ai', output[0].generated_text.replace(input, '').trim());
+                } else if (activeTask === 'image') {
+                    // Image generation takes time
+                    const result = await activePipeline(input);
+                    thinking.remove();
+                    // result usually contains an image object or canvas
+                    const canvas = document.createElement('canvas');
+                    canvas.width = result.width;
+                    canvas.height = result.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.putImageData(result.toImageData(), 0, 0);
+                    addMessage('ai', canvas.toDataURL(), true);
+                }
+            } catch (err) {
+                thinking.innerHTML = `<div class="ai-blob p-4 text-xs text-red-400">Error: ${err.message}</div>`;
+            } finally {
+                isProcessing = false;
+            }
+        }
+
+        sendBtn.onclick = process;
+        promptArea.onkeydown = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); process(); } };
+
     </script>
 </body>
 </html>
