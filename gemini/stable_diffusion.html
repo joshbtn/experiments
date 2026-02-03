@@ -3,24 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mobile WebNN Image Gen</title>
+    <title>Mobile WebNN Image Gen - Diagnostic Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        @keyframes pulse-custom {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-        .animate-pulse-custom {
-            animation: pulse-custom 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        canvas {
-            touch-action: none;
-            -webkit-user-select: none;
-            user-select: none;
-        }
+        .animate-spin-slow { animation: spin 3s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        canvas { touch-action: none; }
     </style>
 </head>
-<body class="bg-slate-950 text-white font-sans selection:bg-purple-500/30 overflow-x-hidden">
+<body class="bg-slate-950 text-white font-sans overflow-x-hidden selection:bg-purple-500/30">
 
     <div class="min-h-screen flex flex-col p-4 max-w-2xl mx-auto">
         <!-- Header -->
@@ -29,318 +20,254 @@
                 <h1 class="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-500 bg-clip-text text-transparent">
                     AI Canvas
                 </h1>
-                <p id="status-text" class="text-xs text-slate-400">Initializing WebGPU...</p>
+                <p id="status-text" class="text-xs text-slate-400">Verifying environment...</p>
             </div>
             <div id="gpu-badge" class="px-2 py-1 rounded bg-slate-800 text-[10px] font-mono border border-slate-700">
-                CHECKING HARDWARE
+                INITIALIZING
             </div>
         </header>
 
         <!-- Main Display / Preview -->
-        <div class="relative w-full aspect-square bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl mb-4 group">
-            <div id="placeholder-overlay" class="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-slate-900 z-10">
-                <div id="loading-spinner" class="hidden mb-4">
-                    <div class="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
-                </div>
-                <div id="initial-info">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-12 h-12 mb-4 text-slate-700 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <p class="text-sm font-medium">Ready to Generate</p>
-                    <p class="text-xs text-slate-500 mt-2 px-6">Stable Diffusion Turbo will run locally on your NPU/GPU.</p>
-                </div>
-                <div id="progress-container" class="hidden w-full px-12 mt-4">
-                    <div class="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
-                        <div id="progress-bar" class="h-full bg-purple-500 w-0 transition-all duration-300"></div>
+        <div class="relative w-full aspect-square bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl mb-4">
+            <!-- Diagnostics Overlay (Visible by default until GPU works) -->
+            <div id="diagnostic-overlay" class="absolute inset-0 z-50 flex flex-col items-center justify-center p-8 text-center bg-slate-900/95 backdrop-blur-sm">
+                <div id="diag-icon" class="mb-4">
+                    <div class="w-12 h-12 border-2 border-slate-700 rounded-full flex items-center justify-center">
+                        <span class="text-2xl">?</span>
                     </div>
-                    <p id="progress-text" class="text-[10px] text-slate-500 mt-2 uppercase tracking-widest">Downloading Model...</p>
                 </div>
+                <h2 id="diag-title" class="text-lg font-bold mb-2">Hardware Check</h2>
+                <div id="diag-list" class="space-y-2 text-left w-full max-w-xs mx-auto mb-6">
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="text-slate-500">Secure Context (HTTPS)</span>
+                        <span id="check-https" class="font-mono">...</span>
+                    </div>
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="text-slate-500">WebGPU API Access</span>
+                        <span id="check-api" class="font-mono">...</span>
+                    </div>
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="text-slate-500">GPU Adapter Found</span>
+                        <span id="check-adapter" class="font-mono">...</span>
+                    </div>
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="text-slate-500">Logical Device Created</span>
+                        <span id="check-device" class="font-mono">...</span>
+                    </div>
+                </div>
+                <div id="diag-advice" class="text-xs text-slate-400 px-4 mb-6 italic">
+                    Analyzing browser compatibility...
+                </div>
+                <button onclick="location.reload()" class="px-6 py-2 bg-slate-800 border border-slate-700 rounded-full text-xs hover:bg-slate-700 transition-colors">
+                    RETRY CHECK
+                </button>
+            </div>
+
+            <div id="progress-container" class="hidden absolute inset-0 z-40 bg-slate-950/80 flex flex-col items-center justify-center p-12 text-center">
+                <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-4">
+                    <div id="progress-bar" class="h-full bg-purple-500 w-0 transition-all duration-300"></div>
+                </div>
+                <p id="progress-text" class="text-[10px] text-slate-400 uppercase tracking-tighter">Downloading Model...</p>
             </div>
             
-            <!-- Result Canvas -->
-            <canvas id="output-canvas" class="w-full h-full object-cover hidden"></canvas>
-            
-            <!-- Sketch Canvas (Overlay for 'sketch-to-image') -->
-            <canvas id="sketch-canvas" class="absolute inset-0 z-20 opacity-40 hidden cursor-crosshair"></canvas>
+            <canvas id="output-canvas" class="w-full h-full object-cover"></canvas>
         </div>
 
         <!-- Controls -->
-        <div class="space-y-4">
-            <div class="relative">
-                <textarea 
-                    id="prompt-input" 
-                    placeholder="Describe your idea (e.g., 'A futuristic sneaker with neon wings')" 
-                    class="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none transition-all placeholder:text-slate-600 resize-none h-24"
-                ></textarea>
-                <button 
-                    id="clear-prompt"
-                    class="absolute top-2 right-2 p-1 text-slate-600 hover:text-slate-400 transition-colors"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
+        <div id="controls-area" class="space-y-4 opacity-50 pointer-events-none">
+            <textarea 
+                id="prompt-input" 
+                placeholder="A high-performance sneaker designed for Mars..." 
+                class="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none transition-all placeholder:text-slate-700 resize-none h-24"
+            ></textarea>
 
-            <div class="flex gap-2">
-                <button id="generate-btn" disabled class="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 py-4 rounded-xl font-bold shadow-lg shadow-purple-500/20 active:scale-95 transition-all">
-                    GENERATE IMAGE
-                </button>
-                <button id="sketch-mode-btn" class="px-4 bg-slate-900 border border-slate-800 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                </button>
-            </div>
-
-            <!-- Settings / Info -->
-            <div class="grid grid-cols-2 gap-2 text-[10px] text-slate-500 font-mono">
-                <div class="bg-slate-900/50 p-2 rounded-lg border border-slate-800/50">
-                    STEPS: 1-4 (TURBO)
-                </div>
-                <div class="bg-slate-900/50 p-2 rounded-lg border border-slate-800/50">
-                    MODEL: SD-TURBO-Q4
-                </div>
-            </div>
+            <button id="generate-btn" class="w-full bg-gradient-to-r from-purple-600 to-pink-600 py-4 rounded-xl font-bold shadow-lg shadow-purple-500/20 active:scale-95 transition-all">
+                LOAD AI MODEL
+            </button>
         </div>
 
-        <footer class="mt-auto pt-8 pb-4 text-center">
-            <p class="text-[10px] text-slate-600 uppercase tracking-widest">
-                Local Hardware Inference • Privacy Guaranteed
-            </p>
-        </footer>
-    </div>
-
-    <!-- Modals / Toast -->
-    <div id="toast" class="fixed bottom-8 left-1/2 -translate-x-1/2 px-4 py-2 bg-slate-800 border border-slate-700 rounded-full text-xs transition-all opacity-0 translate-y-4 pointer-events-none">
-        Copied to clipboard
+        <div id="debug-log" class="mt-6 p-3 bg-black/40 border border-slate-800 rounded-lg font-mono text-[9px] text-slate-500 h-24 overflow-y-auto">
+            [00:00] System ready.
+        </div>
     </div>
 
     <script type="module">
         import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
 
-        // Configuration
-        const MODEL_ID = 'onnx-community/sd-turbo-webnn'; // Hypothetical path for high-end WebNN target
-        // For current fallback consistency, using the standard SD-Turbo-Q4
-        const FALLBACK_MODEL = 'Xenova/sd-turbo'; 
-        
-        let pipe = null;
-        let isGenerating = false;
-        let sketchEnabled = false;
+        const logs = document.getElementById('debug-log');
+        function log(msg, color = 'text-slate-500') {
+            const time = new Date().toLocaleTimeString([], { hour12: false, minute: '2-digit', second: '2-digit' });
+            logs.innerHTML += `<div class="${color}">[${time}] ${msg}</div>`;
+            logs.scrollTop = logs.scrollHeight;
+        }
 
         const elements = {
             status: document.getElementById('status-text'),
             gpuBadge: document.getElementById('gpu-badge'),
+            diagOverlay: document.getElementById('diagnostic-overlay'),
+            controls: document.getElementById('controls-area'),
             generateBtn: document.getElementById('generate-btn'),
             promptInput: document.getElementById('prompt-input'),
-            progressContainer: document.getElementById('progress-container'),
             progressBar: document.getElementById('progress-bar'),
             progressText: document.getElementById('progress-text'),
-            placeholderOverlay: document.getElementById('placeholder-overlay'),
-            loadingSpinner: document.getElementById('loading-spinner'),
-            initialInfo: document.getElementById('initial-info'),
-            outputCanvas: document.getElementById('output-canvas'),
-            sketchCanvas: document.getElementById('sketch-canvas'),
-            sketchBtn: document.getElementById('sketch-mode-btn')
+            progressContainer: document.getElementById('progress-container'),
+            outputCanvas: document.getElementById('output-canvas')
         };
 
-        // Initialize Hardware Check
-        async function checkHardware() {
-            if (!navigator.gpu) {
-                elements.gpuBadge.innerText = 'WEBGPU UNSUPPORTED';
-                elements.gpuBadge.classList.add('text-red-500');
-                elements.status.innerText = 'Please use a browser with WebGPU enabled.';
-                return false;
+        const checks = {
+            https: document.getElementById('check-https'),
+            api: document.getElementById('check-api'),
+            adapter: document.getElementById('check-adapter'),
+            device: document.getElementById('check-device'),
+            advice: document.getElementById('diag-advice')
+        };
+
+        let pipe = null;
+
+        async function runDiagnostics() {
+            log("Running hardware diagnostics...");
+            let passed = true;
+
+            // 1. Secure Context
+            const isSecure = window.isSecureContext;
+            checks.https.innerText = isSecure ? 'PASSED' : 'FAILED';
+            checks.https.className = isSecure ? 'text-green-500' : 'text-red-500';
+            if (!isSecure) {
+                log("Error: Insecure Context. WebGPU requires HTTPS.", "text-red-400");
+                checks.advice.innerText = "WebGPU requires an HTTPS connection. Localhost usually works, but remote mobile testing requires SSL.";
+                passed = false;
             }
-            
-            try {
-                const adapter = await navigator.gpu.requestAdapter();
-                const device = await adapter.requestDevice();
-                elements.gpuBadge.innerText = adapter.name.toUpperCase();
-                elements.gpuBadge.classList.add('text-green-500');
-                elements.status.innerText = 'Ready to load model...';
-                elements.generateBtn.disabled = false;
-                elements.generateBtn.innerText = 'LOAD MODEL (≈1.5GB)';
-                return true;
-            } catch (e) {
-                elements.gpuBadge.innerText = 'GPU ACCESS DENIED';
-                return false;
+
+            // 2. API Existence
+            const hasAPI = !!navigator.gpu;
+            checks.api.innerText = hasAPI ? 'PASSED' : 'FAILED';
+            checks.api.className = hasAPI ? 'text-green-500' : 'text-red-500';
+            if (!hasAPI) {
+                log("Error: navigator.gpu is undefined.", "text-red-400");
+                checks.advice.innerText = "WebGPU is not supported by this browser. Enable 'WebGPU' in flags or update your OS.";
+                passed = false;
+            }
+
+            if (passed) {
+                try {
+                    // 3. Adapter Access
+                    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+                    if (!adapter) {
+                        checks.adapter.innerText = 'NULL';
+                        checks.adapter.className = 'text-red-500';
+                        log("Error: No GPU adapter found matching requirements.", "text-red-400");
+                        checks.advice.innerText = "Browser can see the API but can't find a compatible GPU driver. Try disabling Battery Saver.";
+                        return;
+                    }
+                    checks.adapter.innerText = 'FOUND';
+                    checks.adapter.className = 'text-green-500';
+                    log(`Adapter: ${adapter.name || 'Generic GPU'}`);
+
+                    // 4. Device Creation
+                    const device = await adapter.requestDevice();
+                    if (!device) {
+                        checks.device.innerText = 'REFUSED';
+                        checks.device.className = 'text-red-500';
+                        log("Error: Logical device request was refused.", "text-red-400");
+                        return;
+                    }
+                    checks.device.innerText = 'CREATED';
+                    checks.device.className = 'text-green-500';
+                    log("WebGPU Logical Device successfully initialized.");
+
+                    // All passed
+                    setTimeout(() => {
+                        elements.diagOverlay.style.display = 'none';
+                        elements.controls.style.opacity = '1';
+                        elements.controls.style.pointerEvents = 'auto';
+                        elements.gpuBadge.innerText = (adapter.name || 'WebGPU Active').toUpperCase();
+                        elements.gpuBadge.className = 'px-2 py-1 rounded bg-green-900/30 text-[10px] font-mono border border-green-500/50 text-green-400';
+                        elements.status.innerText = "Hardware Ready";
+                    }, 800);
+
+                } catch (e) {
+                    log(`Critical Failure: ${e.message}`, "text-red-500");
+                    checks.device.innerText = 'ERROR';
+                    checks.device.className = 'text-red-500';
+                    checks.advice.innerText = `System error: ${e.message}. This is usually a browser security block.`;
+                }
             }
         }
 
-        // Model Loading
-        async function initModel() {
+        async function loadModel() {
             elements.generateBtn.disabled = true;
-            elements.initialInfo.classList.add('hidden');
-            elements.loadingSpinner.classList.remove('hidden');
             elements.progressContainer.classList.remove('hidden');
+            log("Loading SD-Turbo (4-bit)... this may take a minute.");
 
             try {
-                // Configure env to use local storage effectively
                 env.allowLocalModels = false;
-                env.useBrowserCache = true;
-
-                elements.status.innerText = 'Downloading model shards...';
-                
-                pipe = await pipeline('text-to-image', FALLBACK_MODEL, {
+                pipe = await pipeline('text-to-image', 'Xenova/sd-turbo', {
                     device: 'webgpu',
-                    dtype: 'q4', // 4-bit quantization for mobile memory
+                    dtype: 'q4',
                     progress_callback: (p) => {
                         if (p.status === 'progress') {
                             elements.progressBar.style.width = `${p.progress}%`;
-                            elements.progressText.innerText = `${p.file}: ${Math.round(p.progress)}%`;
+                            elements.progressText.innerText = `DL: ${Math.round(p.progress)}% - ${p.file}`;
                         }
+                        if (p.status === 'done') log(`Loaded: ${p.file}`);
                     }
                 });
 
-                elements.status.innerText = 'Model Ready';
-                elements.placeholderOverlay.classList.add('hidden');
-                elements.generateBtn.innerText = 'GENERATE';
-                elements.generateBtn.disabled = false;
-                elements.outputCanvas.classList.remove('hidden');
-
-            } catch (error) {
-                console.error(error);
-                elements.status.innerText = 'Error loading model. Check RAM/Connection.';
-                elements.loadingSpinner.classList.add('hidden');
-                elements.initialInfo.classList.remove('hidden');
                 elements.progressContainer.classList.add('hidden');
+                elements.generateBtn.disabled = false;
+                elements.generateBtn.innerText = 'GENERATE IMAGE';
+                elements.status.innerText = "Model loaded and cached.";
+                log("Model initialized. Ready for inference.", "text-green-400");
+
+            } catch (e) {
+                log(`Loading Error: ${e.message}`, "text-red-400");
+                elements.generateBtn.innerText = 'RETRY LOAD';
+                elements.generateBtn.disabled = false;
             }
         }
 
-        // Image Generation
         async function generate() {
-            if (!pipe || isGenerating) return;
-
             const prompt = elements.promptInput.value.trim();
-            if (!prompt) {
-                showToast('Please enter a description');
-                return;
-            }
+            if (!prompt) return;
 
-            isGenerating = true;
             elements.generateBtn.disabled = true;
-            elements.generateBtn.innerText = 'GENERATING...';
-            elements.status.innerText = 'Running inference kernels...';
+            elements.generateBtn.innerText = 'THINKING...';
+            log(`Prompt: ${prompt}`);
 
             try {
-                const startTime = performance.now();
-                
-                // SD Turbo is designed for 1-4 steps
+                const start = performance.now();
                 const output = await pipe(prompt, {
                     num_inference_steps: 2,
-                    guidance_scale: 0.0, // SD Turbo recommends 0.0
+                    guidance_scale: 0.0,
                     width: 512,
                     height: 512
                 });
-
-                const endTime = performance.now();
-                const duration = ((endTime - startTime) / 1000).toFixed(2);
+                const end = performance.now();
+                
+                log(`Inference complete in ${((end - start)/1000).toFixed(2)}s`, "text-purple-400");
 
                 const canvas = elements.outputCanvas;
-                const ctx = canvas.getContext('2d');
                 canvas.width = 512;
                 canvas.height = 512;
-                
-                // Draw the generated image
-                const imgData = new ImageData(
-                    new Uint8ClampedArray(output.images[0].data),
-                    output.images[0].width,
-                    output.images[0].height
-                );
+                const ctx = canvas.getContext('2d');
+                const imgData = new ImageData(new Uint8ClampedArray(output.images[0].data), 512, 512);
                 ctx.putImageData(imgData, 0, 0);
 
-                elements.status.innerText = `Generated in ${duration}s`;
-
-            } catch (error) {
-                console.error(error);
-                elements.status.innerText = 'Generation failed. Out of memory?';
+            } catch (e) {
+                log(`Gen Error: ${e.message}`, "text-red-400");
             } finally {
-                isGenerating = false;
                 elements.generateBtn.disabled = false;
                 elements.generateBtn.innerText = 'GENERATE AGAIN';
             }
         }
 
-        // Sketching Logic
-        function setupSketching() {
-            const canvas = elements.sketchCanvas;
-            const ctx = canvas.getContext('2d');
-            let drawing = false;
-
-            function resize() {
-                canvas.width = canvas.offsetWidth;
-                canvas.height = canvas.offsetHeight;
-                ctx.strokeStyle = '#a855f7';
-                ctx.lineWidth = 4;
-                ctx.lineJoin = 'round';
-                ctx.lineCap = 'round';
-            }
-
-            window.addEventListener('resize', resize);
-            resize();
-
-            const getPos = (e) => {
-                const rect = canvas.getBoundingClientRect();
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-                return { x: clientX - rect.left, y: clientY - rect.top };
-            };
-
-            const start = (e) => { drawing = true; const p = getPos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); };
-            const move = (e) => { if (!drawing) return; const p = getPos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); };
-            const end = () => { drawing = false; };
-
-            canvas.addEventListener('mousedown', start);
-            canvas.addEventListener('mousemove', move);
-            canvas.addEventListener('mouseup', end);
-            canvas.addEventListener('touchstart', start);
-            canvas.addEventListener('touchmove', move);
-            canvas.addEventListener('touchend', end);
-        }
-
-        function toggleSketch() {
-            sketchEnabled = !sketchEnabled;
-            elements.sketchCanvas.classList.toggle('hidden', !sketchEnabled);
-            elements.sketchBtn.classList.toggle('bg-purple-600', sketchEnabled);
-            elements.sketchBtn.classList.toggle('text-white', sketchEnabled);
-            if (sketchEnabled) {
-                elements.promptInput.placeholder = "Sketch above + Describe here...";
-            } else {
-                elements.promptInput.placeholder = "Describe your idea...";
-            }
-        }
-
-        function showToast(msg) {
-            const toast = document.getElementById('toast');
-            toast.innerText = msg;
-            toast.style.opacity = '1';
-            toast.style.transform = 'translate(-50%, 0)';
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                toast.style.transform = 'translate(-50%, 1rem)';
-            }, 2000);
-        }
-
-        // Event Listeners
         elements.generateBtn.addEventListener('click', () => {
-            if (!pipe) {
-                initModel();
-            } else {
-                generate();
-            }
+            if (!pipe) loadModel();
+            else generate();
         });
 
-        elements.sketchBtn.addEventListener('click', toggleSketch);
-        document.getElementById('clear-prompt').addEventListener('click', () => {
-            elements.promptInput.value = '';
-            const ctx = elements.sketchCanvas.getContext('2d');
-            ctx.clearRect(0, 0, elements.sketchCanvas.width, elements.sketchCanvas.height);
-        });
-
-        // Start
-        checkHardware();
-        setupSketching();
+        // Initialize
+        runDiagnostics();
     </script>
 </body>
 </html>
