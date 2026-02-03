@@ -3,271 +3,198 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mobile WebNN Image Gen - Diagnostic Edition</title>
+    <title>AI Canvas v2.1 (WebGPU Fixed)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .animate-spin-slow { animation: spin 3s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        canvas { touch-action: none; }
+        canvas { touch-action: none; background: #020617; }
     </style>
 </head>
 <body class="bg-slate-950 text-white font-sans overflow-x-hidden selection:bg-purple-500/30">
 
     <div class="min-h-screen flex flex-col p-4 max-w-2xl mx-auto">
-        <!-- Header -->
         <header class="flex items-center justify-between mb-6">
             <div>
-                <h1 class="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-500 bg-clip-text text-transparent">
+                <h1 class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
                     AI Canvas
                 </h1>
-                <p id="status-text" class="text-xs text-slate-400">Verifying environment...</p>
+                <p id="status-text" class="text-xs text-slate-400">Stable Diffusion Turbo • Local NPU</p>
             </div>
             <div id="gpu-badge" class="px-2 py-1 rounded bg-slate-800 text-[10px] font-mono border border-slate-700">
-                INITIALIZING
+                CHECKING HARDWARE
             </div>
         </header>
 
-        <!-- Main Display / Preview -->
         <div class="relative w-full aspect-square bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl mb-4">
-            <!-- Diagnostics Overlay (Visible by default until GPU works) -->
-            <div id="diagnostic-overlay" class="absolute inset-0 z-50 flex flex-col items-center justify-center p-8 text-center bg-slate-900/95 backdrop-blur-sm">
-                <div id="diag-icon" class="mb-4">
-                    <div class="w-12 h-12 border-2 border-slate-700 rounded-full flex items-center justify-center">
-                        <span class="text-2xl">?</span>
-                    </div>
-                </div>
-                <h2 id="diag-title" class="text-lg font-bold mb-2">Hardware Check</h2>
-                <div id="diag-list" class="space-y-2 text-left w-full max-w-xs mx-auto mb-6">
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="text-slate-500">Secure Context (HTTPS)</span>
-                        <span id="check-https" class="font-mono">...</span>
-                    </div>
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="text-slate-500">WebGPU API Access</span>
-                        <span id="check-api" class="font-mono">...</span>
-                    </div>
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="text-slate-500">GPU Adapter Found</span>
-                        <span id="check-adapter" class="font-mono">...</span>
-                    </div>
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="text-slate-500">Logical Device Created</span>
-                        <span id="check-device" class="font-mono">...</span>
-                    </div>
-                </div>
-                <div id="diag-advice" class="text-xs text-slate-400 px-4 mb-6 italic">
-                    Analyzing browser compatibility...
-                </div>
-                <button onclick="location.reload()" class="px-6 py-2 bg-slate-800 border border-slate-700 rounded-full text-xs hover:bg-slate-700 transition-colors">
-                    RETRY CHECK
-                </button>
-            </div>
-
-            <div id="progress-container" class="hidden absolute inset-0 z-40 bg-slate-950/80 flex flex-col items-center justify-center p-12 text-center">
+            <!-- Progress Bar Overlay -->
+            <div id="loading-overlay" class="hidden absolute inset-0 z-50 bg-slate-950/90 flex flex-col items-center justify-center p-12 text-center">
                 <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-4">
-                    <div id="progress-bar" class="h-full bg-purple-500 w-0 transition-all duration-300"></div>
+                    <div id="progress-bar" class="h-full bg-cyan-500 w-0 transition-all duration-300"></div>
                 </div>
-                <p id="progress-text" class="text-[10px] text-slate-400 uppercase tracking-tighter">Downloading Model...</p>
+                <p id="progress-text" class="text-[10px] text-cyan-400 uppercase tracking-widest font-bold">Downloading Weights...</p>
+                <p class="text-[9px] text-slate-500 mt-2 italic">Initial load: ~1.4GB. Please stay on Wi-Fi.</p>
             </div>
             
             <canvas id="output-canvas" class="w-full h-full object-cover"></canvas>
         </div>
 
-        <!-- Controls -->
-        <div id="controls-area" class="space-y-4 opacity-50 pointer-events-none">
-            <textarea 
-                id="prompt-input" 
-                placeholder="A high-performance sneaker designed for Mars..." 
-                class="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none transition-all placeholder:text-slate-700 resize-none h-24"
-            ></textarea>
+        <div class="space-y-4">
+            <div class="relative">
+                <textarea 
+                    id="prompt-input" 
+                    placeholder="e.g., 'A high-speed cybernetic panther jumping through a neon hoop'" 
+                    class="w-full bg-slate-900 border border-slate-800 rounded-xl p-4 text-sm focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all placeholder:text-slate-700 resize-none h-24"
+                ></textarea>
+            </div>
 
-            <button id="generate-btn" class="w-full bg-gradient-to-r from-purple-600 to-pink-600 py-4 rounded-xl font-bold shadow-lg shadow-purple-500/20 active:scale-95 transition-all">
-                LOAD AI MODEL
+            <button id="main-btn" disabled class="w-full bg-gradient-to-r from-cyan-600 to-blue-600 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 py-4 rounded-xl font-bold shadow-lg shadow-cyan-500/20 active:scale-95 transition-all uppercase tracking-wider">
+                CHECKING HARDWARE...
             </button>
-        </div>
 
-        <div id="debug-log" class="mt-6 p-3 bg-black/40 border border-slate-800 rounded-lg font-mono text-[9px] text-slate-500 h-24 overflow-y-auto">
-            [00:00] System ready.
+            <div id="debug-log" class="p-3 bg-black/40 border border-slate-800 rounded-lg font-mono text-[9px] text-slate-500 h-24 overflow-y-auto">
+                [SYSTEM] Initializing...
+            </div>
         </div>
     </div>
 
     <script type="module">
+        // Import specifically from the v3 branch where text-to-image lives
         import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
 
-        const logs = document.getElementById('debug-log');
-        function log(msg, color = 'text-slate-500') {
+        const debug = document.getElementById('debug-log');
+        const log = (msg, err = false) => {
             const time = new Date().toLocaleTimeString([], { hour12: false, minute: '2-digit', second: '2-digit' });
-            logs.innerHTML += `<div class="${color}">[${time}] ${msg}</div>`;
-            logs.scrollTop = logs.scrollHeight;
-        }
-
-        const elements = {
-            status: document.getElementById('status-text'),
-            gpuBadge: document.getElementById('gpu-badge'),
-            diagOverlay: document.getElementById('diagnostic-overlay'),
-            controls: document.getElementById('controls-area'),
-            generateBtn: document.getElementById('generate-btn'),
-            promptInput: document.getElementById('prompt-input'),
-            progressBar: document.getElementById('progress-bar'),
-            progressText: document.getElementById('progress-text'),
-            progressContainer: document.getElementById('progress-container'),
-            outputCanvas: document.getElementById('output-canvas')
+            debug.innerHTML += `<div class="${err ? 'text-red-400' : 'text-slate-400'}">[${time}] ${msg}</div>`;
+            debug.scrollTop = debug.scrollHeight;
         };
 
-        const checks = {
-            https: document.getElementById('check-https'),
-            api: document.getElementById('check-api'),
-            adapter: document.getElementById('check-adapter'),
-            device: document.getElementById('check-device'),
-            advice: document.getElementById('diag-advice')
+        const elements = {
+            btn: document.getElementById('main-btn'),
+            status: document.getElementById('status-text'),
+            prompt: document.getElementById('prompt-input'),
+            progress: document.getElementById('progress-bar'),
+            progressText: document.getElementById('progress-text'),
+            overlay: document.getElementById('loading-overlay'),
+            canvas: document.getElementById('output-canvas'),
+            badge: document.getElementById('gpu-badge')
         };
 
         let pipe = null;
 
-        async function runDiagnostics() {
-            log("Running hardware diagnostics...");
-            let passed = true;
-
-            // 1. Secure Context
-            const isSecure = window.isSecureContext;
-            checks.https.innerText = isSecure ? 'PASSED' : 'FAILED';
-            checks.https.className = isSecure ? 'text-green-500' : 'text-red-500';
-            if (!isSecure) {
-                log("Error: Insecure Context. WebGPU requires HTTPS.", "text-red-400");
-                checks.advice.innerText = "WebGPU requires an HTTPS connection. Localhost usually works, but remote mobile testing requires SSL.";
-                passed = false;
+        // 1. Hardware Initialization
+        async function initHardware() {
+            if (!navigator.gpu) {
+                log("FATAL: WebGPU not found. Use Chrome (Android) or enable flags.", true);
+                elements.btn.innerText = "WEBGPU NOT SUPPORTED";
+                return;
             }
 
-            // 2. API Existence
-            const hasAPI = !!navigator.gpu;
-            checks.api.innerText = hasAPI ? 'PASSED' : 'FAILED';
-            checks.api.className = hasAPI ? 'text-green-500' : 'text-red-500';
-            if (!hasAPI) {
-                log("Error: navigator.gpu is undefined.", "text-red-400");
-                checks.advice.innerText = "WebGPU is not supported by this browser. Enable 'WebGPU' in flags or update your OS.";
-                passed = false;
+            try {
+                const adapter = await navigator.gpu.requestAdapter();
+                if (!adapter) throw new Error("No GPU adapter found.");
+                
+                const device = await adapter.requestDevice();
+                elements.badge.innerText = adapter.name.toUpperCase();
+                elements.badge.className = "px-2 py-1 rounded bg-cyan-900/30 text-[10px] font-mono border border-cyan-500/50 text-cyan-400";
+                
+                elements.btn.disabled = false;
+                elements.btn.innerText = "INITIALIZE AI ENGINE";
+                log("Hardware Ready. WebGPU Device Created.");
+            } catch (e) {
+                log(`GPU Error: ${e.message}`, true);
             }
+        }
 
-            if (passed) {
-                try {
-                    // 3. Adapter Access
-                    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-                    if (!adapter) {
-                        checks.adapter.innerText = 'NULL';
-                        checks.adapter.className = 'text-red-500';
-                        log("Error: No GPU adapter found matching requirements.", "text-red-400");
-                        checks.advice.innerText = "Browser can see the API but can't find a compatible GPU driver. Try disabling Battery Saver.";
-                        return;
+        // 2. Model Loading (Fixing the Pipeline Task)
+        async function loadAI() {
+            elements.btn.disabled = true;
+            elements.overlay.classList.remove('hidden');
+            log("Attempting to load SD-Turbo. Target: WebGPU/Q4");
+
+            try {
+                // Ensure browser cache is used for the 1.4GB weights
+                env.allowLocalModels = false;
+                env.useBrowserCache = true;
+
+                // We use 'onnx-community/sd-turbo' which is pre-optimized for Transformers.js v3
+                pipe = await pipeline('text-to-image', 'onnx-community/sd-turbo', {
+                    device: 'webgpu',
+                    dtype: 'q4', // Quantized for mobile memory
+                    progress_callback: (p) => {
+                        if (p.status === 'progress') {
+                            elements.progress.style.width = `${p.progress}%`;
+                            elements.progressText.innerText = `LOADING: ${Math.round(p.progress)}%`;
+                        }
                     }
-                    checks.adapter.innerText = 'FOUND';
-                    checks.adapter.className = 'text-green-500';
-                    log(`Adapter: ${adapter.name || 'Generic GPU'}`);
+                });
 
-                    // 4. Device Creation
-                    const device = await adapter.requestDevice();
-                    if (!device) {
-                        checks.device.innerText = 'REFUSED';
-                        checks.device.className = 'text-red-500';
-                        log("Error: Logical device request was refused.", "text-red-400");
-                        return;
-                    }
-                    checks.device.innerText = 'CREATED';
-                    checks.device.className = 'text-green-500';
-                    log("WebGPU Logical Device successfully initialized.");
+                log("AI Model Loaded Successfully.", "text-cyan-400");
+                elements.overlay.classList.add('hidden');
+                elements.btn.innerText = "GENERATE IMAGE";
+                elements.btn.disabled = false;
+                elements.status.innerText = "Hardware: NPU Active";
 
-                    // All passed
-                    setTimeout(() => {
-                        elements.diagOverlay.style.display = 'none';
-                        elements.controls.style.opacity = '1';
-                        elements.controls.style.pointerEvents = 'auto';
-                        elements.gpuBadge.innerText = (adapter.name || 'WebGPU Active').toUpperCase();
-                        elements.gpuBadge.className = 'px-2 py-1 rounded bg-green-900/30 text-[10px] font-mono border border-green-500/50 text-green-400';
-                        elements.status.innerText = "Hardware Ready";
-                    }, 800);
-
-                } catch (e) {
-                    log(`Critical Failure: ${e.message}`, "text-red-500");
-                    checks.device.innerText = 'ERROR';
-                    checks.device.className = 'text-red-500';
-                    checks.advice.innerText = `System error: ${e.message}. This is usually a browser security block.`;
+            } catch (e) {
+                log(`Model Error: ${e.message}`, true);
+                elements.btn.innerText = "RETRY INITIALIZATION";
+                elements.btn.disabled = false;
+                
+                if (e.message.includes("text-to-image")) {
+                    log("Tip: Your browser version may be restricting the 'text-to-image' task.", true);
                 }
             }
         }
 
-        async function loadModel() {
-            elements.generateBtn.disabled = true;
-            elements.progressContainer.classList.remove('hidden');
-            log("Loading SD-Turbo (4-bit)... this may take a minute.");
-
-            try {
-                env.allowLocalModels = false;
-                pipe = await pipeline('text-to-image', 'Xenova/sd-turbo', {
-                    device: 'webgpu',
-                    dtype: 'q4',
-                    progress_callback: (p) => {
-                        if (p.status === 'progress') {
-                            elements.progressBar.style.width = `${p.progress}%`;
-                            elements.progressText.innerText = `DL: ${Math.round(p.progress)}% - ${p.file}`;
-                        }
-                        if (p.status === 'done') log(`Loaded: ${p.file}`);
-                    }
-                });
-
-                elements.progressContainer.classList.add('hidden');
-                elements.generateBtn.disabled = false;
-                elements.generateBtn.innerText = 'GENERATE IMAGE';
-                elements.status.innerText = "Model loaded and cached.";
-                log("Model initialized. Ready for inference.", "text-green-400");
-
-            } catch (e) {
-                log(`Loading Error: ${e.message}`, "text-red-400");
-                elements.generateBtn.innerText = 'RETRY LOAD';
-                elements.generateBtn.disabled = false;
-            }
-        }
-
+        // 3. Inference Logic
         async function generate() {
-            const prompt = elements.promptInput.value.trim();
+            const prompt = elements.prompt.value.trim();
             if (!prompt) return;
 
-            elements.generateBtn.disabled = true;
-            elements.generateBtn.innerText = 'THINKING...';
-            log(`Prompt: ${prompt}`);
+            elements.btn.disabled = true;
+            elements.btn.innerText = "PROCESSING...";
+            log(`Prompt sent to NPU: "${prompt}"`);
 
             try {
-                const start = performance.now();
+                const startTime = performance.now();
+                
+                // Turbo is optimized for 1-4 steps
                 const output = await pipe(prompt, {
                     num_inference_steps: 2,
                     guidance_scale: 0.0,
                     width: 512,
                     height: 512
                 });
-                const end = performance.now();
-                
-                log(`Inference complete in ${((end - start)/1000).toFixed(2)}s`, "text-purple-400");
 
-                const canvas = elements.outputCanvas;
-                canvas.width = 512;
-                canvas.height = 512;
-                const ctx = canvas.getContext('2d');
-                const imgData = new ImageData(new Uint8ClampedArray(output.images[0].data), 512, 512);
+                const endTime = performance.now();
+                log(`Render complete in ${((endTime - startTime) / 1000).toFixed(2)}s`);
+
+                const ctx = elements.canvas.getContext('2d');
+                elements.canvas.width = 512;
+                elements.canvas.height = 512;
+                
+                const imgData = new ImageData(
+                    new Uint8ClampedArray(output.images[0].data),
+                    512, 512
+                );
                 ctx.putImageData(imgData, 0, 0);
 
             } catch (e) {
-                log(`Gen Error: ${e.message}`, "text-red-400");
+                log(`Inference Error: ${e.message}`, true);
             } finally {
-                elements.generateBtn.disabled = false;
-                elements.generateBtn.innerText = 'GENERATE AGAIN';
+                elements.btn.disabled = false;
+                elements.btn.innerText = "GENERATE AGAIN";
             }
         }
 
-        elements.generateBtn.addEventListener('click', () => {
-            if (!pipe) loadModel();
+        // Bind Events
+        elements.btn.addEventListener('click', () => {
+            if (!pipe) loadAI();
             else generate();
         });
 
-        // Initialize
-        runDiagnostics();
+        // Start Hardware Check
+        initHardware();
     </script>
 </body>
 </html>
