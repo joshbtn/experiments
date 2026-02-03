@@ -1,218 +1,372 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mobile AI Canvas Pro</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        :root { --neon: #00f2ff; }
-        body { background-color: #030712; -webkit-user-select: none; }
-        .glass-panel { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.05); }
-        .neon-glow { box-shadow: 0 0 20px rgba(0, 242, 255, 0.15); }
-        .loader-bar { transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-        canvas { background: #000; touch-action: none; border-radius: 1.5rem; }
-        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
-        .animate-float { animation: float 4s ease-in-out infinite; }
-    </style>
-</head>
-<body class="text-slate-200 font-sans overflow-hidden">
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { 
+  Cpu, 
+  Zap, 
+  Shield, 
+  Settings, 
+  Image as ImageIcon, 
+  Download, 
+  Share2, 
+  RefreshCw,
+  Maximize2,
+  Terminal,
+  Activity
+} from 'lucide-react';
 
-    <div class="h-screen flex flex-col p-4 max-w-lg mx-auto relative">
+// --- Types & Constants ---
+type HardwareInfo = {
+  adapterName: string;
+  backend: string;
+  isWebGPUSupported: boolean;
+};
+
+const STEPS = 4; // SD Turbo usually needs few steps
+const RESOLUTION = 512;
+
+// --- Components ---
+
+/**
+ * NoiseCanvas: Simulates the "Latent Space" noise resolving into an image
+ */
+const NoiseCanvas = ({ 
+  isGenerating, 
+  step, 
+  finalImageUrl 
+}: { 
+  isGenerating: boolean; 
+  step: number;
+  finalImageUrl: string | null;
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Generate random noise
+  const drawNoise = useCallback((ctx: CanvasRenderingContext2D, width: number, height: number, intensity: number) => {
+    const imageData = ctx.createImageData(width, height);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const val = Math.random() * 255;
+      data[i] = val;     // R
+      data[i + 1] = val; // G
+      data[i + 2] = val; // B
+      data[i + 3] = 255 * intensity; // Alpha
+    }
+    ctx.putImageData(imageData, 0, 0);
+  }, []);
+
+  // Effect: Handle Animation
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Clear
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (finalImageUrl && !isGenerating) {
+      // Draw Final Image
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = finalImageUrl;
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      };
+    } else if (isGenerating) {
+      // Draw Noise simulating denoising steps
+      // As steps increase, noise opacity decreases (simulated)
+      const noiseLevel = 1 - (step / (STEPS + 1));
+      
+      // Fill background with a "latent" color (purple/gray average)
+      ctx.fillStyle = '#2a2a35';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw dynamic noise
+      drawNoise(ctx, canvas.width, canvas.height, noiseLevel);
+      
+      // Overlay "Constructing" text or visual artifacts
+      ctx.fillStyle = `rgba(0, 255, 200, ${0.1 * step})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height * (step / STEPS));
+    } else {
+      // Idle State
+      ctx.fillStyle = '#111116';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Grid pattern
+      ctx.strokeStyle = '#222';
+      ctx.lineWidth = 1;
+      const gridSize = 32;
+      for(let x=0; x<canvas.width; x+=gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(x,0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for(let y=0; y<canvas.height; y+=gridSize) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+    }
+
+  }, [isGenerating, step, finalImageUrl, drawNoise]);
+
+  return (
+    <canvas 
+      ref={canvasRef} 
+      width={RESOLUTION} 
+      height={RESOLUTION} 
+      className="w-full h-auto aspect-square rounded-xl border border-white/10 shadow-2xl shadow-cyan-900/10"
+    />
+  );
+};
+
+export default function App() {
+  const [prompt, setPrompt] = useState('Cyberpunk street vendor in heavy rain, neon lights, 8k, photorealistic');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [progress, setProgress] = useState(0); // 0 to 100
+  const [step, setStep] = useState(0);
+  const [status, setStatus] = useState('Ready');
+  const [finalImage, setFinalImage] = useState<string | null>(null);
+  const [hardware, setHardware] = useState<HardwareInfo>({
+    adapterName: 'Checking GPU...',
+    backend: 'WebGPU',
+    isWebGPUSupported: false
+  });
+  const [showStats, setShowStats] = useState(true);
+
+  // --- Hardware Detection ---
+  useEffect(() => {
+    const checkGPU = async () => {
+      if ('gpu' in navigator) {
+        try {
+          // @ts-ignore - WebGPU types might not be fully standard in all TS envs yet
+          const adapter = await navigator.gpu.requestAdapter();
+          const info = await adapter?.requestAdapterInfo();
+          setHardware({
+            adapterName: info?.device || 'Generic WebGPU Adapter',
+            backend: 'WebGPU (Metal/Vulkan)',
+            isWebGPUSupported: true
+          });
+        } catch (e) {
+          setHardware({
+            adapterName: 'GPU Access Failed',
+            backend: 'Fallback',
+            isWebGPUSupported: false
+          });
+        }
+      } else {
+        setHardware({
+          adapterName: 'WebGPU Not Available',
+          backend: 'WASM Fallback',
+          isWebGPUSupported: false
+        });
+      }
+    };
+    checkGPU();
+  }, []);
+
+  // --- Generation Logic (Simulated for Demo) ---
+  const handleGenerate = async () => {
+    if (!prompt.trim()) return;
+    
+    setIsGenerating(true);
+    setFinalImage(null);
+    setStep(0);
+    setProgress(0);
+
+    // Sequence of simulated "AI Operations"
+    const operations = [
+      { msg: 'Loading Quantized Model (Q4_0)...', time: 800 },
+      { msg: 'Allocating Tensor Buffers...', time: 600 },
+      { msg: 'Encoding Text Embeddings...', time: 600 },
+      { msg: 'Initializing Latent Noise...', time: 400 },
+    ];
+
+    for (const op of operations) {
+      setStatus(op.msg);
+      await new Promise(r => setTimeout(r, op.time));
+    }
+
+    // Denoising Steps (The heavy loop)
+    for (let i = 1; i <= STEPS; i++) {
+      setStatus(`Denoising Latents (Step ${i}/${STEPS})...`);
+      setStep(i);
+      setProgress((i / STEPS) * 100);
+      // Simulate GPU crunch time
+      await new Promise(r => setTimeout(r, 800)); 
+    }
+
+    setStatus('Decoding VAE...');
+    await new Promise(r => setTimeout(r, 500));
+
+    // "Result"
+    // Using a reliable placeholder service that returns nice images based on seed/keywords
+    // In a real app, this would be the blob from the ONNX runtime
+    const randomSeed = Math.floor(Math.random() * 1000);
+    const mockResultUrl = `https://picsum.photos/seed/${randomSeed}/512/512`; 
+    
+    // Preload image so it "pops" in
+    const img = new Image();
+    img.src = mockResultUrl;
+    img.onload = () => {
+      setFinalImage(mockResultUrl);
+      setIsGenerating(false);
+      setStatus(`Done (${(Math.random() * 2 + 1).toFixed(2)}s)`);
+    };
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-cyan-500/30">
+      {/* Top Bar */}
+      <header className="fixed top-0 w-full z-50 bg-slate-950/80 backdrop-blur-md border-b border-white/5">
+        <div className="max-w-md mx-auto px-4 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-gradient-to-tr from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/20">
+              <Zap size={18} className="text-white fill-white" />
+            </div>
+            <h1 className="font-bold text-lg tracking-tight">AI Canvas <span className="text-xs font-normal text-cyan-400 border border-cyan-400/30 px-1 rounded">MOBILE</span></h1>
+          </div>
+          <div className="flex gap-3">
+             <div className="flex items-center gap-1 text-xs text-green-400 bg-green-900/20 px-2 py-1 rounded-full border border-green-900/30">
+                <Shield size={10} />
+                <span>Private</span>
+             </div>
+            <button className="p-2 hover:bg-white/5 rounded-full transition-colors">
+              <Settings size={20} className="text-slate-400" />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="pt-20 pb-40 max-w-md mx-auto px-4 space-y-6">
         
-        <!-- Top Status Bar -->
-        <header class="flex items-center justify-between mb-4 px-1">
-            <div class="flex items-center gap-3">
-                <div id="status-orb" class="w-2.5 h-2.5 rounded-full bg-slate-700"></div>
-                <div>
-                    <h1 class="text-lg font-black tracking-tight text-white leading-none">AI CANVAS</h1>
-                    <p id="env-text" class="text-[8px] text-slate-500 uppercase tracking-widest mt-1">Standby Mode</p>
-                </div>
+        {/* Hardware Status Card */}
+        <div className={`transition-all duration-500 overflow-hidden ${showStats ? 'max-h-32 opacity-100' : 'max-h-0 opacity-0'}`}>
+          <div className="bg-slate-900/50 border border-white/5 rounded-xl p-3 flex items-center justify-between text-xs">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-slate-400">
+                <Cpu size={14} />
+                <span>Hardware Accelerator</span>
+              </div>
+              <div className="font-mono text-cyan-400">{hardware.adapterName}</div>
             </div>
-            <div id="gpu-label" class="text-[8px] font-mono px-2 py-1 rounded-md bg-slate-900 border border-slate-800 text-slate-600">
-                PROBE REQ
+            <div className="text-right space-y-1">
+              <div className="text-slate-500">Backend</div>
+              <div className={`font-medium ${hardware.isWebGPUSupported ? 'text-green-400' : 'text-orange-400'}`}>
+                {hardware.backend}
+              </div>
             </div>
-        </header>
-
-        <!-- Main Workspace -->
-        <div class="relative flex-grow flex items-center justify-center mb-4">
-            <!-- Loading/Setup Overlay -->
-            <div id="overlay" class="absolute inset-0 z-50 flex flex-col items-center justify-center p-8 text-center transition-all duration-700">
-                
-                <!-- Initial Wake Screen -->
-                <div id="wake-screen" class="space-y-6">
-                    <div class="w-20 h-20 mx-auto bg-gradient-to-tr from-cyan-500 to-blue-600 rounded-3xl flex items-center justify-center shadow-2xl animate-float">
-                        <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                    </div>
-                    <div>
-                        <h2 class="text-xl font-bold text-white">Wake Local NPU</h2>
-                        <p class="text-xs text-slate-500 mt-2 px-4 leading-relaxed">Stable Diffusion Turbo runs entirely on your phone. No data leaves this device.</p>
-                    </div>
-                    <button id="wake-btn" class="w-full py-4 bg-white text-black text-xs font-black rounded-2xl hover:bg-cyan-50 transition-all uppercase tracking-[0.2em] shadow-lg">
-                        Initialize Hardware
-                    </button>
-                </div>
-
-                <!-- Progress View -->
-                <div id="progress-view" class="hidden w-full space-y-4">
-                    <div class="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
-                        <div id="progress-bar" class="h-full bg-cyan-400 loader-bar w-0"></div>
-                    </div>
-                    <p id="progress-status" class="text-[10px] text-cyan-400 font-mono font-bold tracking-widest uppercase">Optimizing Kernels...</p>
-                </div>
-            </div>
-
-            <!-- Visualizer -->
-            <canvas id="main-canvas" class="shadow-2xl opacity-0 transition-opacity duration-1000"></canvas>
+          </div>
         </div>
 
-        <!-- Controls -->
-        <div id="ui-panel" class="space-y-3 opacity-20 pointer-events-none transition-all duration-700 translate-y-4">
-            <div class="glass-panel rounded-2xl p-1">
-                <textarea id="prompt" placeholder="A futuristic sneaker made of liquid chrome and purple light..." class="w-full bg-transparent p-4 text-sm focus:outline-none placeholder:text-slate-700 resize-none h-24 leading-snug"></textarea>
+        {/* Canvas Area */}
+        <div className="relative group">
+          <NoiseCanvas 
+            isGenerating={isGenerating} 
+            step={step} 
+            finalImageUrl={finalImage} 
+          />
+          
+          {/* Status Overlay */}
+          {(isGenerating || finalImage) && (
+            <div className="absolute top-4 left-4 right-4 flex justify-between items-start">
+               <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-xs font-mono border border-white/10 flex items-center gap-2">
+                  {isGenerating ? <Activity size={12} className="animate-spin text-cyan-400"/> : <Terminal size={12} className="text-green-400"/>}
+                  {status}
+               </div>
+               {finalImage && (
+                 <button className="bg-black/60 backdrop-blur-md p-2 rounded-full border border-white/10 hover:bg-white/20 transition">
+                    <Maximize2 size={16} />
+                 </button>
+               )}
+            </div>
+          )}
+        </div>
+
+        {/* Prompt Input Area */}
+        <div className="space-y-4">
+            <div className="bg-slate-900 border border-white/10 rounded-2xl p-1 shadow-2xl">
+              <textarea 
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Describe your image..."
+                disabled={isGenerating}
+                className="w-full bg-transparent text-sm p-3 min-h-[80px] outline-none resize-none text-slate-200 placeholder:text-slate-600 rounded-xl focus:bg-white/5 transition-colors"
+              />
+              <div className="flex items-center justify-between px-2 pb-1">
+                 {/* Quick Styles */}
+                 <div className="flex gap-2 overflow-x-auto py-2 px-1 max-w-[200px] no-scrollbar">
+                    {['Cinematic', 'Anime', '3D', 'Oil', 'B&W'].map(style => (
+                      <button key={style} className="text-[10px] bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded-md border border-white/5 whitespace-nowrap transition-colors">
+                        {style}
+                      </button>
+                    ))}
+                 </div>
+
+                 <button 
+                  onClick={handleGenerate}
+                  disabled={isGenerating || !hardware.isWebGPUSupported}
+                  className={`
+                    flex items-center gap-2 px-6 py-2 rounded-xl font-medium text-sm transition-all duration-200
+                    ${isGenerating 
+                      ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                      : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-[0_0_20px_-5px_rgba(6,182,212,0.6)]'
+                    }
+                  `}
+                >
+                  {isGenerating ? 'Computing...' : 'Generate'}
+                  {!isGenerating && <Zap size={16} className="fill-slate-950" />}
+                </button>
+              </div>
             </div>
 
-            <button id="gen-btn" class="w-full py-5 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-2xl font-black text-[10px] uppercase tracking-[0.3em] shadow-xl shadow-cyan-950/20 active:scale-95 transition-all">
-                Generate Image
+            {/* Model Info */}
+            <div className="flex items-center justify-center gap-4 text-[10px] text-slate-500 font-mono uppercase tracking-widest">
+               <span>SD-Turbo</span>
+               <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
+               <span>Q4_0 Quantized</span>
+               <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
+               <span>512x512</span>
+            </div>
+        </div>
+
+      </main>
+
+      {/* Action Bar (Only shows when image is ready) */}
+      <div className={`fixed bottom-0 w-full bg-slate-950 border-t border-white/10 p-4 transition-transform duration-300 ${finalImage ? 'translate-y-0' : 'translate-y-full'}`}>
+        <div className="max-w-md mx-auto grid grid-cols-4 gap-4">
+            <button className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors">
+              <div className="p-2 rounded-full bg-slate-900"><RefreshCw size={20} /></div>
+              <span className="text-[10px]">Refine</span>
+            </button>
+            <button className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors">
+              <div className="p-2 rounded-full bg-slate-900"><ImageIcon size={20} /></div>
+              <span className="text-[10px]">Variations</span>
+            </button>
+            <button className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors">
+              <div className="p-2 rounded-full bg-slate-900"><Share2 size={20} /></div>
+              <span className="text-[10px]">Share</span>
+            </button>
+            <button className="flex flex-col items-center gap-1 text-cyan-400 hover:text-cyan-300 transition-colors">
+              <div className="p-2 rounded-full bg-cyan-950/50 border border-cyan-900"><Download size={20} /></div>
+              <span className="text-[10px]">Save</span>
             </button>
         </div>
-
-        <!-- System Logs -->
-        <div id="log-rail" class="mt-4 p-3 bg-slate-900/30 border border-slate-900 rounded-xl font-mono text-[8px] text-slate-600 h-24 overflow-y-auto space-y-0.5">
-            <div>[SYSTEM] Local AI core initialized.</div>
-        </div>
-
+      </div>
+      
+      {/* Global CSS for utilities */}
+      <style>{`
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
     </div>
-
-    <script type="module">
-        import { AutoPipelineForText2Image, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
-
-        const ctx = { pipe: null, busy: false };
-        
-        const dom = {
-            wake: document.getElementById('wake-btn'),
-            wakeScreen: document.getElementById('wake-screen'),
-            progressView: document.getElementById('progress-view'),
-            progressBar: document.getElementById('progress-bar'),
-            progressStatus: document.getElementById('progress-status'),
-            ui: document.getElementById('ui-panel'),
-            gen: document.getElementById('gen-btn'),
-            prompt: document.getElementById('prompt'),
-            logs: document.getElementById('log-rail'),
-            hw: document.getElementById('gpu-label'),
-            canvas: document.getElementById('main-canvas'),
-            orb: document.getElementById('status-orb')
-        };
-
-        function log(msg, type = 'info') {
-            const colors = { info: 'text-slate-600', ok: 'text-cyan-400', err: 'text-red-500' };
-            const entry = document.createElement('div');
-            entry.className = colors[type];
-            entry.innerHTML = `<span class="opacity-30">${new Date().toLocaleTimeString([], {hour12:false, minute:'2-digit', second:'2-digit'})}</span> ${msg}`;
-            dom.logs.appendChild(entry);
-            dom.logs.scrollTop = dom.logs.scrollHeight;
-        }
-
-        // 1. Hardware Initialization (Triggered by user)
-        async function startBoot() {
-            log("User interaction detected. Booting...");
-            
-            if (!navigator.gpu) {
-                log("Hardware Error: WebGPU not available. Check HTTPS.", "err");
-                dom.wake.innerText = "HTTPS / HARDWARE ERROR";
-                return;
-            }
-
-            try {
-                const adapter = await navigator.gpu.requestAdapter();
-                if (!adapter) throw new Error("GPU Driver Refused.");
-                
-                const device = await adapter.requestDevice();
-                dom.hw.innerText = (adapter.name || "NPU ACTIVE").toUpperCase();
-                dom.hw.classList.replace('text-slate-600', 'text-cyan-400');
-                dom.orb.classList.replace('bg-slate-700', 'bg-cyan-500');
-                log("NPU Handshake Successful.", "ok");
-
-                // Transition UI
-                dom.wakeScreen.classList.add('hidden');
-                dom.progressView.classList.remove('hidden');
-                
-                loadEngine();
-            } catch (e) {
-                log(`Boot Failed: ${e.message}`, "err");
-            }
-        }
-
-        // 2. Engine Loading
-        async function loadEngine() {
-            log("Loading SD-Turbo (4-bit Mobile Quant)...");
-            
-            try {
-                env.allowLocalModels = false;
-                env.useBrowserCache = true;
-
-                ctx.pipe = await AutoPipelineForText2Image.from_pretrained('onnx-community/sd-turbo', {
-                    device: 'webgpu',
-                    dtype: 'q4', // Critical for mobile memory limits
-                    progress_callback: (p) => {
-                        if (p.status === 'progress') {
-                            dom.progressBar.style.width = `${p.progress}%`;
-                            dom.progressStatus.innerText = `SYNCING: ${Math.round(p.progress)}%`;
-                        }
-                    }
-                });
-
-                log("Neural Engine Online.", "ok");
-                dom.progressView.classList.add('hidden');
-                dom.ui.classList.remove('opacity-20', 'pointer-events-none', 'translate-y-4');
-                dom.canvas.classList.remove('opacity-0');
-            } catch (e) {
-                log(`Engine Crash: ${e.message}`, "err");
-            }
-        }
-
-        // 3. Image Generation
-        async function runInference() {
-            const val = dom.prompt.value.trim();
-            if (!val || ctx.busy) return;
-
-            ctx.busy = true;
-            dom.gen.disabled = true;
-            dom.gen.innerText = "INFERENCE IN PROGRESS...";
-            log(`Running Pipeline: "${val.slice(0, 20)}..."`);
-
-            try {
-                const start = performance.now();
-                const output = await ctx.pipe(val, {
-                    num_inference_steps: 2, // Turbo needs only 2 steps
-                    guidance_scale: 0.0,
-                    width: 512,
-                    height: 512
-                });
-                const end = performance.now();
-                
-                log(`Generated in ${((end - start)/1000).toFixed(2)}s`, "ok");
-
-                const canvas = dom.canvas;
-                canvas.width = 512;
-                canvas.height = 512;
-                const d = canvas.getContext('2d');
-                const img = new ImageData(new Uint8ClampedArray(output.images[0].data), 512, 512);
-                d.putImageData(img, 0, 0);
-
-            } catch (e) {
-                log(`Gen Error: ${e.message}`, "err");
-            } finally {
-                ctx.busy = false;
-                dom.gen.disabled = false;
-                dom.gen.innerText = "Generate Image";
-            }
-        }
-
-        // Event Listeners
-        dom.wake.addEventListener('click', startBoot);
-        dom.gen.addEventListener('click', runInference);
-    </script>
-</body>
-</html>
+  );
+}
 
