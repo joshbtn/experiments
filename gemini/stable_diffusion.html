@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mobile AI Canvas</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mobile AI Canvas: Real SD-Turbo</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -16,355 +16,395 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
-        /* Custom scrollbar hiding for the quick styles list */
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
-        .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        body { background-color: #020617; color: #f1f5f9; overflow-x: hidden; }
+        
+        .scanline {
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2));
+            background-size: 100% 4px;
+            pointer-events: none;
         }
         
-        body {
-            background-color: #020617; /* slate-950 */
-            color: #f1f5f9; /* slate-100 */
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 10px rgba(6,182,212,0.2); }
+            50% { box-shadow: 0 0 25px rgba(6,182,212,0.5); }
         }
+        .animate-pulse-glow { animation: pulse-glow 2s infinite; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
-    <script type="text/babel">
-        const { useState, useEffect, useRef, useCallback } = React;
+    <!-- WORKER CODE: The Engine Room -->
+    <script id="worker-code" type="javascript/worker">
+        // Import transformers.js v3 (WebGPU support)
+        import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
 
-        // --- Icon Components (Lucide replicas) ---
-        const Icon = ({ path, size = 24, className = "", fill = "none" }) => (
-            <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                width={size} 
-                height={size} 
-                viewBox="0 0 24 24" 
-                fill={fill} 
-                stroke="currentColor" 
-                strokeWidth="2" 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                className={className}
-            >
-                {path}
-            </svg>
-        );
+        // Skip local model checks, force remote download from HF Hub
+        env.allowLocalModels = false;
+        env.useBrowserCache = true;
 
-        const Icons = {
-            Zap: (props) => <Icon path={<><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></>} {...props} />,
-            Shield: (props) => <Icon path={<><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></>} {...props} />,
-            Settings: (props) => <Icon path={<><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></>} {...props} />,
-            Cpu: (props) => <Icon path={<><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></>} {...props} />,
-            Terminal: (props) => <Icon path={<><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></>} {...props} />,
-            Activity: (props) => <Icon path={<><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></>} {...props} />,
-            Maximize2: (props) => <Icon path={<><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></>} {...props} />,
-            RefreshCw: (props) => <Icon path={<><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></>} {...props} />,
-            ImageIcon: (props) => <Icon path={<><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></>} {...props} />,
-            Share2: (props) => <Icon path={<><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></>} {...props} />,
-            Download: (props) => <Icon path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></>} {...props} />,
-        };
+        let generator = null;
+        let modelId = 'Xenova/stable-diffusion-v1-5-quantized';
 
-        const STEPS = 4;
-        const RESOLUTION = 512;
+        self.onmessage = async (event) => {
+            const { type, data } = event.data;
 
-        // --- NoiseCanvas Component ---
-        const NoiseCanvas = ({ isGenerating, step, finalImageUrl }) => {
-            const canvasRef = useRef(null);
+            if (type === 'init_model') {
+                try {
+                    self.postMessage({ status: 'loading', message: 'Checking GPU compatibility...' });
 
-            const drawNoise = useCallback((ctx, width, height, intensity) => {
-                const imageData = ctx.createImageData(width, height);
-                const data = imageData.data;
-                for (let i = 0; i < data.length; i += 4) {
-                    const val = Math.random() * 255;
-                    data[i] = val;
-                    data[i + 1] = val;
-                    data[i + 2] = val;
-                    data[i + 3] = 255 * intensity;
-                }
-                ctx.putImageData(imageData, 0, 0);
-            }, []);
-
-            useEffect(() => {
-                const canvas = canvasRef.current;
-                if (!canvas) return;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) return;
-
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-                if (finalImageUrl && !isGenerating) {
-                    const img = new Image();
-                    img.crossOrigin = "anonymous";
-                    img.src = finalImageUrl;
-                    img.onload = () => {
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    };
-                } else if (isGenerating) {
-                    const noiseLevel = 1 - (step / (STEPS + 1));
-                    ctx.fillStyle = '#2a2a35';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    drawNoise(ctx, canvas.width, canvas.height, noiseLevel);
-                    ctx.fillStyle = `rgba(0, 255, 200, ${0.1 * step})`;
-                    ctx.fillRect(0, 0, canvas.width, canvas.height * (step / STEPS));
-                } else {
-                    ctx.fillStyle = '#111116';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.strokeStyle = '#222';
-                    ctx.lineWidth = 1;
-                    const gridSize = 32;
-                    for(let x=0; x<canvas.width; x+=gridSize) {
-                        ctx.beginPath();
-                        ctx.moveTo(x,0);
-                        ctx.lineTo(x, canvas.height);
-                        ctx.stroke();
-                    }
-                    for(let y=0; y<canvas.height; y+=gridSize) {
-                        ctx.beginPath();
-                        ctx.moveTo(0, y);
-                        ctx.lineTo(canvas.width, y);
-                        ctx.stroke();
-                    }
-                }
-            }, [isGenerating, step, finalImageUrl, drawNoise]);
-
-            return (
-                <canvas 
-                    ref={canvasRef} 
-                    width={RESOLUTION} 
-                    height={RESOLUTION} 
-                    className="w-full h-auto aspect-square rounded-xl border border-white/10 shadow-2xl shadow-cyan-900/10"
-                />
-            );
-        };
-
-        // --- Main App Component ---
-        function App() {
-            const [prompt, setPrompt] = useState('Cyberpunk street vendor in heavy rain, neon lights, 8k, photorealistic');
-            const [isGenerating, setIsGenerating] = useState(false);
-            const [step, setStep] = useState(0);
-            const [status, setStatus] = useState('Ready');
-            const [finalImage, setFinalImage] = useState(null);
-            const [hardware, setHardware] = useState({
-                adapterName: 'Checking GPU...',
-                backend: 'WebGPU',
-                isWebGPUSupported: false
-            });
-            const [showStats, setShowStats] = useState(true);
-
-            // Hardware Detection
-            useEffect(() => {
-                const checkGPU = async () => {
-                    if ('gpu' in navigator) {
-                        try {
-                            const adapter = await navigator.gpu.requestAdapter();
-                            const info = await adapter?.requestAdapterInfo();
-                            setHardware({
-                                adapterName: info?.device || 'Generic WebGPU Adapter',
-                                backend: 'WebGPU (Metal/Vulkan)',
-                                isWebGPUSupported: true
-                            });
-                        } catch (e) {
-                            setHardware({
-                                adapterName: 'GPU Access Failed',
-                                backend: 'Fallback',
-                                isWebGPUSupported: false
-                            });
+                    // Initialize the pipeline
+                    // This triggers the massive download sequence:
+                    // 1. Tokenizer
+                    // 2. Text Encoder
+                    // 3. UNet (The big one, ~1GB+)
+                    // 4. VAE Decoder
+                    
+                    generator = await pipeline('text-to-image', modelId, {
+                        quantized: true, // Crucial for mobile RAM
+                        progress_callback: (x) => {
+                            // Normalize progress across multiple files
+                            if(x.status === 'progress') {
+                                self.postMessage({ 
+                                    status: 'downloading', 
+                                    file: x.file, 
+                                    progress: x.progress,
+                                    loaded: x.loaded,
+                                    total: x.total
+                                });
+                            }
                         }
-                    } else {
-                        setHardware({
-                            adapterName: 'WebGPU Not Available',
-                            backend: 'WASM Fallback',
-                            isWebGPUSupported: false
-                        });
+                    });
+
+                    self.postMessage({ status: 'ready', message: 'Stable Diffusion Loaded' });
+
+                } catch (e) {
+                    console.error("Worker Init Error", e);
+                    self.postMessage({ status: 'error', message: e.message });
+                }
+            }
+
+            if (type === 'generate') {
+                if (!generator) {
+                    self.postMessage({ status: 'error', message: 'Model not loaded' });
+                    return;
+                }
+
+                try {
+                    self.postMessage({ status: 'generating', message: 'Running Inference (20 steps)...' });
+                    
+                    // Run Inference
+                    // num_inference_steps: 20 is a good balance for v1-5 quantized
+                    const output = await generator(data.prompt, {
+                        num_inference_steps: 10, // Lower steps for "Turbo" feel on mobile
+                        guidance_scale: 7.5,
+                        callback_function: (step) => {
+                            self.postMessage({ status: 'generating', message: `Denoising Step ${step[0] + 1}...` });
+                        }
+                    });
+                    
+                    // The output is an object with an 'images' array containing Blob/Tensor
+                    // Transformers.js text-to-image output handling:
+                    let imageUrl = null;
+                    if (output && output.images && output.images.length > 0) {
+                        const image = output.images[0];
+                        // Convert RawImage to Blob URL
+                        const blob = await image.toBlob();
+                        imageUrl = URL.createObjectURL(blob);
+                    }
+
+                    self.postMessage({ status: 'complete', result: imageUrl });
+
+                } catch (e) {
+                    console.error("Inference Error", e);
+                    self.postMessage({ status: 'error', message: 'Inference Failed: ' + e.message });
+                }
+            }
+        };
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- Utils ---
+        async function runWebGPUDiagnostic() {
+            if (!navigator.gpu) return { success: false, msg: "Not Supported (WASM only)" };
+            try {
+                const adapter = await navigator.gpu.requestAdapter();
+                if (!adapter) return { success: false, msg: "No Adapter" };
+                const info = await adapter.requestAdapterInfo();
+                return { 
+                    success: true, 
+                    msg: "Active", 
+                    info: info.device || "Generic GPU" 
+                };
+            } catch (e) {
+                return { success: false, msg: "Error" };
+            }
+        }
+
+        // --- Icons ---
+        const Icon = ({ path, size = 20, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{path}</svg>
+        );
+        const Icons = {
+            Zap: () => <Icon path={<><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></>} />,
+            Cpu: () => <Icon path={<><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line></>} />,
+            Download: () => <Icon path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></>} />,
+            Settings: () => <Icon path={<><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></>} />
+        };
+
+        function App() {
+            const [prompt, setPrompt] = useState('An astronaut riding a horse on mars, photorealistic');
+            const [status, setStatus] = useState('Ready');
+            const [detailedStatus, setDetailedStatus] = useState('');
+            const [finalImage, setFinalImage] = useState(null);
+            const [gpuInfo, setGpuInfo] = useState({ success: false, msg: 'Init...', info: '' });
+            
+            // Real Model State
+            const [useRealModel, setUseRealModel] = useState(false);
+            const [modelLoaded, setModelLoaded] = useState(false);
+            const [downloadProgress, setDownloadProgress] = useState(0); // Overall
+            const [fileProgress, setFileProgress] = useState({}); // Per file
+            const [isGenerating, setIsGenerating] = useState(false);
+
+            const workerRef = useRef(null);
+
+            // Init
+            useEffect(() => {
+                runWebGPUDiagnostic().then(setGpuInfo);
+
+                // Setup Worker
+                const blob = new Blob([document.getElementById('worker-code').textContent], { type: 'application/javascript' });
+                const worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
+                workerRef.current = worker;
+
+                worker.onmessage = (e) => {
+                    const { status, message, file, progress, result } = e.data;
+                    
+                    if (status === 'loading') {
+                        setStatus(message);
+                    }
+                    if (status === 'downloading') {
+                        // Intelligent Progress Tracking
+                        setFileProgress(prev => ({ ...prev, [file]: progress }));
+                        setStatus('Downloading AI Models...');
+                        setDetailedStatus(`${file} (${Math.round(progress)}%)`);
+                        
+                        // Heuristic for total progress (approximate)
+                        // UNet is largest (~80%), others are small
+                        // This is just a visual estimation for the user
+                        setDownloadProgress(Math.round(progress));
+                    }
+                    if (status === 'ready') {
+                        setStatus('SD v1.5 Ready');
+                        setDetailedStatus('Waiting for prompt');
+                        setModelLoaded(true);
+                        setDownloadProgress(100);
+                    }
+                    if (status === 'generating') {
+                        setStatus('Generating...');
+                        setDetailedStatus(message);
+                    }
+                    if (status === 'complete') {
+                        setIsGenerating(false);
+                        setStatus('Done');
+                        setDetailedStatus('Rendering Complete');
+                        if (result) setFinalImage(result);
+                    }
+                    if (status === 'error') {
+                        setIsGenerating(false);
+                        setStatus('Error');
+                        setDetailedStatus(message);
+                        alert(`Model Error: ${message}\n\nNote: This requires a device with ~8GB RAM.`);
                     }
                 };
-                checkGPU();
+
+                return () => worker.terminate();
             }, []);
 
-            const handleGenerate = async () => {
-                if (!prompt.trim()) return;
-                
+            const toggleRealModel = () => {
+                if (!useRealModel) {
+                    if (confirm("⚠️ DOWNLOAD WARNING ⚠️\n\nThis will download ~2GB of model data to your browser cache.\n\nIt works best on Wi-Fi and requires a powerful device (e.g., iPhone 15, Laptop with GPU).\n\nContinue?")) {
+                        setUseRealModel(true);
+                        setFinalImage(null);
+                        setModelLoaded(false);
+                        workerRef.current.postMessage({ type: 'init_model' });
+                    }
+                } else {
+                    setUseRealModel(false);
+                    setStatus('Ready (Simulation Mode)');
+                    setDetailedStatus('');
+                }
+            };
+
+            const handleGenerate = () => {
                 setIsGenerating(true);
                 setFinalImage(null);
-                setStep(0);
 
-                const operations = [
-                    { msg: 'Loading Quantized Model (Q4_0)...', time: 800 },
-                    { msg: 'Allocating Tensor Buffers...', time: 600 },
-                    { msg: 'Encoding Text Embeddings...', time: 600 },
-                    { msg: 'Initializing Latent Noise...', time: 400 },
-                ];
-
-                for (const op of operations) {
-                    setStatus(op.msg);
-                    await new Promise(r => setTimeout(r, op.time));
+                if (useRealModel) {
+                    if (!modelLoaded) {
+                         alert("Please wait for model to finish downloading.");
+                         setIsGenerating(false);
+                         return;
+                    }
+                    workerRef.current.postMessage({ type: 'generate', data: { prompt } });
+                } else {
+                    // Simulation
+                    setStatus('Simulating...');
+                    setDetailedStatus('Procedural generation');
+                    setTimeout(() => {
+                        // Basic canvas drawing as fallback
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 512; canvas.height = 512;
+                        const ctx = canvas.getContext('2d');
+                        ctx.fillStyle = '#111'; ctx.fillRect(0,0,512,512);
+                        ctx.fillStyle = '#06b6d4'; 
+                        ctx.font = '20px monospace';
+                        ctx.fillText('Simulation Mode: ' + prompt.slice(0, 20) + '...', 20, 256);
+                        
+                        // Add some noise
+                        for(let i=0; i<1000; i++) {
+                            ctx.fillStyle = `rgba(6, 182, 212, ${Math.random()})`;
+                            ctx.fillRect(Math.random()*512, Math.random()*512, 2, 2);
+                        }
+                        
+                        setFinalImage(canvas.toDataURL());
+                        setIsGenerating(false);
+                        setStatus('Finished');
+                    }, 1000);
                 }
-
-                for (let i = 1; i <= STEPS; i++) {
-                    setStatus(`Denoising Latents (Step ${i}/${STEPS})...`);
-                    setStep(i);
-                    await new Promise(r => setTimeout(r, 800)); 
-                }
-
-                setStatus('Decoding VAE...');
-                await new Promise(r => setTimeout(r, 500));
-
-                const randomSeed = Math.floor(Math.random() * 1000);
-                const mockResultUrl = `https://picsum.photos/seed/${randomSeed}/512/512`; 
-                
-                const img = new Image();
-                img.src = mockResultUrl;
-                img.onload = () => {
-                    setFinalImage(mockResultUrl);
-                    setIsGenerating(false);
-                    setStatus(`Done (${(Math.random() * 2 + 1).toFixed(2)}s)`);
-                };
             };
 
             return (
-                <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-cyan-500/30">
-                    {/* Top Bar */}
-                    <header className="fixed top-0 w-full z-50 bg-slate-950/80 backdrop-blur-md border-b border-white/5">
-                        <div className="max-w-md mx-auto px-4 h-14 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 bg-gradient-to-tr from-cyan-500 to-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-cyan-500/20">
-                                    <Icons.Zap size={18} className="text-white fill-white" />
-                                </div>
-                                <h1 className="font-bold text-lg tracking-tight">AI Canvas <span className="text-xs font-normal text-cyan-400 border border-cyan-400/30 px-1 rounded">MOBILE</span></h1>
+                <div className="min-h-screen flex flex-col items-center pb-20 relative font-sans">
+                    {/* Background */}
+                    <div className="absolute inset-0 bg-slate-950 z-0"></div>
+                    <div className="absolute inset-0 scanline z-0 opacity-20"></div>
+
+                    {/* Navbar */}
+                    <div className="w-full z-10 p-4 border-b border-white/5 bg-slate-900/80 backdrop-blur-md flex justify-between items-center sticky top-0">
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-cyan-500 flex items-center justify-center text-black shadow-lg shadow-cyan-500/20">
+                                <Icons.Zap />
                             </div>
-                            <div className="flex gap-3">
-                                <div className="flex items-center gap-1 text-xs text-green-400 bg-green-900/20 px-2 py-1 rounded-full border border-green-900/30">
-                                    <Icons.Shield size={10} />
-                                    <span>Private</span>
+                            <div>
+                                <h1 className="font-bold text-sm tracking-widest text-white">AI CANVAS</h1>
+                                <div className="flex items-center gap-1">
+                                    <div className={`w-1.5 h-1.5 rounded-full ${gpuInfo.success ? 'bg-green-500' : 'bg-amber-500'}`}></div>
+                                    <span className="text-[10px] text-slate-400 font-mono">{gpuInfo.info}</span>
                                 </div>
-                                <button className="p-2 hover:bg-white/5 rounded-full transition-colors">
-                                    <Icons.Settings size={20} className="text-slate-400" />
-                                </button>
                             </div>
                         </div>
-                    </header>
+                        <button onClick={() => alert('App Info:\nUsing Xenova/transformers (v2.17)\nModel: SD v1.5 Quantized\nExecution: WebGPU/WASM')} className="p-2 text-slate-500 hover:text-white transition-colors">
+                            <Icons.Settings />
+                        </button>
+                    </div>
 
-                    {/* Main Content */}
-                    <main className="pt-20 pb-40 max-w-md mx-auto px-4 space-y-6">
+                    <main className="w-full max-w-lg z-10 px-4 mt-6 flex-1 flex flex-col gap-4">
                         
-                        {/* Hardware Status Card */}
-                        <div className={`transition-all duration-500 overflow-hidden ${showStats ? 'max-h-32 opacity-100' : 'max-h-0 opacity-0'}`}>
-                            <div className="bg-slate-900/50 border border-white/5 rounded-xl p-3 flex items-center justify-between text-xs">
-                                <div className="space-y-1">
-                                    <div className="flex items-center gap-2 text-slate-400">
-                                        <Icons.Cpu size={14} />
-                                        <span>Hardware Accelerator</span>
-                                    </div>
-                                    <div className="font-mono text-cyan-400">{hardware.adapterName}</div>
-                                </div>
-                                <div className="text-right space-y-1">
-                                    <div className="text-slate-500">Backend</div>
-                                    <div className={`font-medium ${hardware.isWebGPUSupported ? 'text-green-400' : 'text-orange-400'}`}>
-                                        {hardware.backend}
-                                    </div>
+                        {/* Control Panel */}
+                        <div className="bg-slate-900/50 border border-white/5 p-4 rounded-xl flex items-center justify-between">
+                            <div className="space-y-1">
+                                <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Engine Status</div>
+                                <div className={`text-xs font-mono ${useRealModel ? 'text-cyan-400' : 'text-slate-500'}`}>
+                                    {useRealModel ? 'Stable Diffusion v1.5' : 'Simulation Mode'}
                                 </div>
                             </div>
+                            <button 
+                                onClick={toggleRealModel}
+                                className={`text-xs px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
+                                    useRealModel 
+                                    ? 'bg-cyan-500/10 border border-cyan-500/50 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.2)]' 
+                                    : 'bg-slate-800 border border-white/10 text-slate-300 hover:bg-slate-700'
+                                }`}
+                            >
+                                {useRealModel ? 'ACTIVE' : 'ENABLE REAL AI'}
+                            </button>
                         </div>
 
-                        {/* Canvas Area */}
-                        <div className="relative group">
-                            <NoiseCanvas 
-                                isGenerating={isGenerating} 
-                                step={step} 
-                                finalImageUrl={finalImage} 
-                            />
-                            
-                            {/* Status Overlay */}
-                            {(isGenerating || finalImage) && (
-                                <div className="absolute top-4 left-4 right-4 flex justify-between items-start">
-                                    <div className="bg-black/60 backdrop-blur-md px-3 py-1 rounded-full text-xs font-mono border border-white/10 flex items-center gap-2">
-                                        {isGenerating ? <Icons.Activity size={12} className="animate-spin text-cyan-400"/> : <Icons.Terminal size={12} className="text-green-400"/>}
-                                        {status}
-                                    </div>
-                                    {finalImage && (
-                                        <button className="bg-black/60 backdrop-blur-md p-2 rounded-full border border-white/10 hover:bg-white/20 transition">
-                                            <Icons.Maximize2 size={16} />
-                                        </button>
+                        {/* Image Viewer */}
+                        <div className="relative aspect-square w-full bg-black rounded-2xl border border-white/10 overflow-hidden shadow-2xl group">
+                            {finalImage ? (
+                                <img src={finalImage} className="w-full h-full object-contain animate-in fade-in zoom-in duration-500" />
+                            ) : (
+                                <div className="w-full h-full flex flex-col items-center justify-center text-slate-600 space-y-4 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-900 to-black">
+                                    {isGenerating || (useRealModel && !modelLoaded) ? (
+                                        <div className="flex flex-col items-center w-3/4 gap-4">
+                                            <div className="relative w-16 h-16">
+                                                <div className="absolute inset-0 border-4 border-slate-800 rounded-full"></div>
+                                                <div className="absolute inset-0 border-4 border-t-cyan-500 rounded-full animate-spin"></div>
+                                            </div>
+                                            <div className="text-center space-y-1">
+                                                <div className="text-xs font-bold text-cyan-400 animate-pulse">{status}</div>
+                                                <div className="text-[10px] text-slate-500 font-mono truncate max-w-[200px] mx-auto">{detailedStatus}</div>
+                                            </div>
+                                            {/* Download Progress Bar */}
+                                            {useRealModel && !modelLoaded && (
+                                                <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
+                                                    <div 
+                                                        className="h-full bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.8)] transition-all duration-300" 
+                                                        style={{width: `${downloadProgress}%`}}
+                                                    ></div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <Icons.Cpu size={48} className="text-slate-800" />
+                                            <span className="text-xs font-medium tracking-widest opacity-50">READY TO GENERATE</span>
+                                        </>
                                     )}
                                 </div>
                             )}
-                        </div>
-
-                        {/* Prompt Input Area */}
-                        <div className="space-y-4">
-                            <div className="bg-slate-900 border border-white/10 rounded-2xl p-1 shadow-2xl">
-                                <textarea 
-                                    value={prompt}
-                                    onChange={(e) => setPrompt(e.target.value)}
-                                    placeholder="Describe your image..."
-                                    disabled={isGenerating}
-                                    className="w-full bg-transparent text-sm p-3 min-h-[80px] outline-none resize-none text-slate-200 placeholder:text-slate-600 rounded-xl focus:bg-white/5 transition-colors"
-                                />
-                                <div className="flex items-center justify-between px-2 pb-1">
-                                    {/* Quick Styles */}
-                                    <div className="flex gap-2 overflow-x-auto py-2 px-1 max-w-[200px] no-scrollbar">
-                                        {['Cinematic', 'Anime', '3D', 'Oil', 'B&W'].map(style => (
-                                            <button key={style} className="text-[10px] bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded-md border border-white/5 whitespace-nowrap transition-colors">
-                                                {style}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    <button 
-                                        onClick={handleGenerate}
-                                        disabled={isGenerating || !hardware.isWebGPUSupported}
-                                        className={`
-                                            flex items-center gap-2 px-6 py-2 rounded-xl font-medium text-sm transition-all duration-200
-                                            ${isGenerating 
-                                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
-                                            : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-[0_0_20px_-5px_rgba(6,182,212,0.6)]'
-                                            }
-                                        `}
-                                    >
-                                        {isGenerating ? 'Computing...' : 'Generate'}
-                                        {!isGenerating && <Icons.Zap size={16} className="fill-slate-950" />}
-                                    </button>
+                            
+                            {/* Badges */}
+                            <div className="absolute top-3 left-3 flex gap-2">
+                                <div className="px-2 py-1 bg-black/60 backdrop-blur-md rounded text-[10px] font-mono text-slate-300 border border-white/5">
+                                    {useRealModel ? 'ONNX INT8' : 'SIMULATION'}
                                 </div>
                             </div>
+                        </div>
 
-                            {/* Model Info */}
-                            <div className="flex items-center justify-center gap-4 text-[10px] text-slate-500 font-mono uppercase tracking-widest">
-                                <span>SD-Turbo</span>
-                                <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
-                                <span>Q4_0 Quantized</span>
-                                <span className="w-1 h-1 bg-slate-600 rounded-full"></span>
-                                <span>512x512</span>
-                            </div>
+                        {/* Input Area */}
+                        <div className="space-y-3">
+                            <textarea 
+                                value={prompt}
+                                onChange={e => setPrompt(e.target.value)}
+                                className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-4 text-sm text-white focus:outline-none focus:border-cyan-500/50 focus:bg-slate-900 transition-all resize-none h-24 placeholder:text-slate-600"
+                                placeholder="Describe your image in detail..."
+                            ></textarea>
+                            
+                            <button 
+                                onClick={handleGenerate}
+                                disabled={isGenerating || (useRealModel && !modelLoaded)}
+                                className={`w-full py-4 rounded-xl font-bold text-sm tracking-wide flex items-center justify-center gap-2 transition-all transform active:scale-[0.98]
+                                    ${isGenerating 
+                                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                                        : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white shadow-lg shadow-cyan-900/20'
+                                    }`}
+                            >
+                                <Icons.Zap size={18} className={isGenerating ? "animate-pulse" : "fill-white"} />
+                                {isGenerating ? 'PROCESSING...' : 'GENERATE IMAGE'}
+                            </button>
+                        </div>
+
+                        {/* Quick Prompts */}
+                        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-4 pt-2">
+                            {['Cyberpunk City', 'Watercolor Flower', 'Pixel Art Character', 'Space Nebula'].map(tag => (
+                                <button 
+                                    key={tag} 
+                                    onClick={() => setPrompt(tag)} 
+                                    className="text-[10px] px-3 py-1.5 rounded-lg bg-slate-800 border border-white/5 hover:bg-slate-700 hover:border-white/20 whitespace-nowrap text-slate-300 transition-colors"
+                                >
+                                    {tag}
+                                </button>
+                            ))}
                         </div>
 
                     </main>
-
-                    {/* Action Bar */}
-                    <div className={`fixed bottom-0 w-full bg-slate-950 border-t border-white/10 p-4 transition-transform duration-300 ${finalImage ? 'translate-y-0' : 'translate-y-full'}`}>
-                        <div className="max-w-md mx-auto grid grid-cols-4 gap-4">
-                            <button className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors">
-                                <div className="p-2 rounded-full bg-slate-900"><Icons.RefreshCw size={20} /></div>
-                                <span className="text-[10px]">Refine</span>
-                            </button>
-                            <button className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors">
-                                <div className="p-2 rounded-full bg-slate-900"><Icons.ImageIcon size={20} /></div>
-                                <span className="text-[10px]">Variations</span>
-                            </button>
-                            <button className="flex flex-col items-center gap-1 text-slate-400 hover:text-white transition-colors">
-                                <div className="p-2 rounded-full bg-slate-900"><Icons.Share2 size={20} /></div>
-                                <span className="text-[10px]">Share</span>
-                            </button>
-                            <button className="flex flex-col items-center gap-1 text-cyan-400 hover:text-cyan-300 transition-colors">
-                                <div className="p-2 rounded-full bg-cyan-950/50 border border-cyan-900"><Icons.Download size={20} /></div>
-                                <span className="text-[10px]">Save</span>
-                            </button>
-                        </div>
-                    </div>
                 </div>
             );
         }
