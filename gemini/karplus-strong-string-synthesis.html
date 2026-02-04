@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TabSynth Pro - Grid Sequencer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&display=swap');
+        
+        body { 
+            background-color: #020617; 
+            color: #f8fafc; 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            overflow-x: hidden;
+        }
+
+        /* Custom Scrollbar for the Sequencer */
+        .sequencer-scroll::-webkit-scrollbar { height: 10px; }
+        .sequencer-scroll::-webkit-scrollbar-track { background: #0f172a; }
+        .sequencer-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 5px; }
+        .sequencer-scroll::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        .sequencer-container {
+            position: relative;
+            display: flex;
+            background: #0f172a;
+            border-radius: 0 0 12px 12px;
+            border: 1px solid #1e293b;
+            overflow: hidden;
+        }
+
+        /* Transport Bar Above Grid */
+        .transport-bar {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-bottom: none;
+            border-radius: 12px 12px 0 0;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 40;
+        }
+
+        /* Sticky Left Labels */
+        .string-labels {
+            position: sticky;
+            left: 0;
+            z-index: 30;
+            background: #1e293b;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            padding: 8px;
+            border-right: 2px solid #334155;
+            box-shadow: 4px 0 10px rgba(0,0,0,0.3);
+        }
+
+        .string-label {
+            height: 44px;
+            width: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 800;
+            color: #94a3b8;
+            font-size: 1.1rem;
+        }
+
+        /* Scrollable Grid Area */
+        .sequencer-scroll {
+            overflow-x: auto;
+            flex-grow: 1;
+            padding: 8px;
+            scroll-behavior: smooth;
+        }
+
+        .steps-wrapper {
+            display: flex;
+            gap: 4px;
+            height: 100%;
+        }
+
+        /* Fixed Width Columns */
+        .step-column {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 0 0 46px;
+            position: relative;
+            transition: background 0.1s;
+        }
+
+        /* Measure Divider */
+        .step-column.measure-start {
+            border-left: 3px solid #475569;
+            padding-left: 4px;
+            margin-left: 2px;
+        }
+
+        .step-column.active {
+            background: rgba(56, 189, 248, 0.1);
+        }
+
+        .step-column.active::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            border: 2px solid #38bdf8;
+            pointer-events: none;
+            z-index: 10;
+            border-radius: 4px;
+        }
+
+        /* Cell Styling */
+        .cell {
+            height: 44px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: text;
+        }
+
+        .cell input {
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            border: none;
+            color: #f1f5f9;
+            text-align: center;
+            font-weight: bold;
+            font-family: 'JetBrains Mono', monospace;
+            outline: none;
+            font-size: 0.9rem;
+        }
+
+        .cell.has-note {
+            background: #0369a1;
+            border-color: #0ea5e9;
+        }
+
+        .btn-transport {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            transition: all 0.2s;
+            background: #334155;
+            color: white;
+        }
+
+        .btn-transport:hover { background: #475569; }
+        .btn-transport:active { transform: scale(0.95); }
+        .btn-transport.active-play { background: #10b981; }
+        .btn-transport.active-pause { background: #f59e0b; }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
+            <div>
+                <h1 class="text-4xl font-black text-white tracking-tighter italic">
+                    TAB<span class="text-sky-500">SYNTH</span>
+                </h1>
+                <p class="text-slate-500 font-medium italic">Karplus-Strong String Synthesis</p>
+            </div>
+
+            <div class="flex items-center flex-wrap gap-3">
+                <button id="addMeasureBtn" class="bg-slate-800 hover:bg-slate-700 text-white px-5 py-2.5 rounded-xl font-bold border border-slate-700 transition-all flex items-center gap-2 text-sm">
+                    + Add Measure
+                </button>
+                <button id="clearBtn" class="bg-slate-950 hover:bg-red-900/20 text-slate-500 hover:text-red-400 px-4 py-2.5 rounded-xl font-bold transition-all border border-slate-800 text-sm">
+                    Reset
+                </button>
+            </div>
+        </header>
+
+        <!-- Settings Bar -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-900/30 p-4 rounded-xl border border-slate-800">
+            <div class="space-y-1">
+                <label class="block text-[10px] uppercase font-black text-slate-500">Model</label>
+                <select id="guitarType" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-1.5 text-xs font-bold text-sky-400 outline-none">
+                    <option value="acoustic">Steel-String</option>
+                    <option value="electric">Clean Electric</option>
+                    <option value="nylon">Nylon String</option>
+                    <option value="banjo">Banjo</option>
+                </select>
+            </div>
+            <div class="space-y-1">
+                <label class="block text-[10px] uppercase font-black text-slate-500">Tempo: <span id="tempoVal" class="text-sky-500">120</span></label>
+                <input type="range" id="tempo" min="60" max="220" value="120" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-sky-500">
+            </div>
+            <div class="space-y-1">
+                <label class="block text-[10px] uppercase font-black text-slate-500">Sustain</label>
+                <input type="range" id="damping" min="85" max="99" value="96" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-sky-500">
+            </div>
+            <div class="space-y-1">
+                <label class="block text-[10px] uppercase font-black text-slate-500">Output</label>
+                <input type="range" id="volume" min="0" max="100" value="75" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-sky-500">
+            </div>
+        </div>
+
+        <!-- Transport Bar -->
+        <div class="transport-bar">
+            <button id="playBtn" class="btn-transport" title="Play">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button id="pauseBtn" class="btn-transport hidden" title="Pause">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+            </button>
+            <button id="stopBtn" class="btn-transport" title="Stop & Reset">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
+            </button>
+            
+            <div class="h-6 w-px bg-slate-700 mx-2"></div>
+            
+            <div class="text-xs font-mono text-slate-400">
+                POS: <span id="posIndicator" class="text-sky-500">000</span>
+            </div>
+            
+            <div class="ml-auto text-[10px] font-bold text-slate-600 uppercase tracking-tighter">
+                <span id="playbackStatus">Standby</span>
+            </div>
+        </div>
+
+        <!-- The Sequencer -->
+        <div class="sequencer-container shadow-2xl">
+            <div class="string-labels">
+                <div class="string-label">e</div>
+                <div class="string-label">B</div>
+                <div class="string-label">G</div>
+                <div class="string-label">D</div>
+                <div class="string-label">A</div>
+                <div class="string-label">E</div>
+            </div>
+
+            <div id="sequencerScroll" class="sequencer-scroll">
+                <div id="stepsContainer" class="steps-wrapper">
+                    <!-- Steps -->
+                </div>
+            </div>
+        </div>
+
+        <footer class="mt-8 flex justify-center text-slate-600 text-[10px] uppercase tracking-widest gap-8">
+            <div class="flex items-center gap-2">Space for Play/Pause</div>
+            <div class="flex items-center gap-2">Enter Numbers 0-24</div>
+        </footer>
+    </div>
+
+    <script>
+        class TabSynthEngine {
+            constructor() {
+                this.context = new (window.AudioContext || window.webkitAudioContext)();
+                this.masterGain = this.context.createGain();
+                this.masterGain.connect(this.context.destination);
+                this.setVolume(0.75);
+            }
+            setVolume(val) { this.masterGain.gain.setTargetAtTime(val, this.context.currentTime, 0.02); }
+            playString(frequency, damping = 0.96) {
+                if (this.context.state === 'suspended') this.context.resume();
+                const period = Math.round(this.context.sampleRate / frequency);
+                const buffer = this.context.createBuffer(1, this.context.sampleRate * 2.5, this.context.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < period; i++) data[i] = Math.random() * 2 - 1;
+                for (let i = period; i < data.length; i++) {
+                    data[i] = (data[i - period] + data[i - period + 1]) * 0.5 * damping;
+                }
+                const source = this.context.createBufferSource();
+                source.buffer = buffer;
+                source.connect(this.masterGain);
+                source.start();
+            }
+        }
+
+        const STRINGS = ['e', 'B', 'G', 'D', 'A', 'E'];
+        const BASE_FREQS = { 'e': 329.63, 'B': 246.94, 'G': 196.00, 'D': 146.83, 'A': 110.00, 'E': 82.41 };
+        
+        const engine = new TabSynthEngine();
+        let totalSteps = 0;
+        let isPlaying = false;
+        let currentStepIndex = 0;
+        let playInterval = null;
+
+        const stepsContainer = document.getElementById('stepsContainer');
+        const playBtn = document.getElementById('playBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const posIndicator = document.getElementById('posIndicator');
+        const statusEl = document.getElementById('playbackStatus');
+        const tempoInput = document.getElementById('tempo');
+        const tempoValLabel = document.getElementById('tempoVal');
+        const dampingInput = document.getElementById('damping');
+        const seqScroll = document.getElementById('sequencerScroll');
+
+        function createStep(index) {
+            const col = document.createElement('div');
+            col.className = 'step-column';
+            if (index % 16 === 0) col.classList.add('measure-start');
+            col.dataset.index = index;
+
+            STRINGS.forEach(stringName => {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.inputMode = 'numeric';
+                input.maxLength = 2;
+                input.placeholder = '-';
+                input.oninput = (e) => {
+                    const val = e.target.value.replace(/\D/g, '');
+                    e.target.value = val;
+                    if (val !== '') {
+                        cell.classList.add('has-note');
+                        const freq = BASE_FREQS[stringName] * Math.pow(2, parseInt(val) / 12);
+                        engine.playString(freq, dampingInput.value/100);
+                    } else cell.classList.remove('has-note');
+                };
+                cell.appendChild(input);
+                col.appendChild(cell);
+            });
+            return col;
+        }
+
+        function addMeasure() {
+            const fragment = document.createDocumentFragment();
+            for (let i = 0; i < 16; i++) {
+                fragment.appendChild(createStep(totalSteps + i));
+            }
+            stepsContainer.appendChild(fragment);
+            totalSteps += 16;
+        }
+
+        function startPlayback() {
+            if (isPlaying) return;
+            isPlaying = true;
+            playBtn.classList.add('hidden');
+            pauseBtn.classList.remove('hidden');
+            statusEl.innerText = "Playing";
+            runStep();
+        }
+
+        function pausePlayback() {
+            isPlaying = false;
+            clearTimeout(playInterval);
+            pauseBtn.classList.add('hidden');
+            playBtn.classList.remove('hidden');
+            statusEl.innerText = "Paused";
+        }
+
+        function resetPlayback() {
+            isPlaying = false;
+            clearTimeout(playInterval);
+            currentStepIndex = 0;
+            posIndicator.innerText = "000";
+            pauseBtn.classList.add('hidden');
+            playBtn.classList.remove('hidden');
+            document.querySelectorAll('.step-column').forEach(c => c.classList.remove('active'));
+            statusEl.innerText = "Ready";
+        }
+
+        function runStep() {
+            if (!isPlaying) return;
+
+            const allCols = document.querySelectorAll('.step-column');
+            allCols.forEach(c => c.classList.remove('active'));
+            
+            const activeCol = allCols[currentStepIndex];
+            if (activeCol) {
+                activeCol.classList.add('active');
+                posIndicator.innerText = String(currentStepIndex + 1).padStart(3, '0');
+                
+                // Auto-scroll logic
+                const rect = activeCol.getBoundingClientRect();
+                const containerRect = seqScroll.getBoundingClientRect();
+                if (rect.right > containerRect.right - 50 || rect.left < containerRect.left + 50) {
+                    activeCol.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                }
+
+                activeCol.querySelectorAll('input').forEach((input, stringIdx) => {
+                    if (input.value !== '') {
+                        const freq = BASE_FREQS[STRINGS[stringIdx]] * Math.pow(2, parseInt(input.value) / 12);
+                        engine.playString(freq, dampingInput.value / 100);
+                    }
+                });
+            }
+
+            currentStepIndex = (currentStepIndex + 1) % totalSteps;
+            const stepTime = (60 / tempoInput.value / 4) * 1000;
+            playInterval = setTimeout(runStep, stepTime);
+        }
+
+        // Init
+        addMeasure();
+        addMeasure();
+
+        // Bindings
+        document.getElementById('addMeasureBtn').onclick = addMeasure;
+        playBtn.onclick = startPlayback;
+        pauseBtn.onclick = pausePlayback;
+        stopBtn.onclick = resetPlayback;
+        tempoInput.oninput = (e) => tempoValLabel.innerText = e.target.value;
+        document.getElementById('volume').oninput = (e) => engine.setVolume(e.target.value / 100);
+        document.getElementById('clearBtn').onclick = () => {
+            if (confirm("Reset everything?")) {
+                resetPlayback();
+                document.querySelectorAll('input').forEach(i => {
+                    i.value = '';
+                    i.parentElement.classList.remove('has-note');
+                });
+            }
+        };
+
+        // Hotkeys
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && e.target.tagName !== 'INPUT') {
+                e.preventDefault();
+                isPlaying ? pausePlayback() : startPlayback();
+            }
+        });
+    </script>
+</body>
+</html>
+
