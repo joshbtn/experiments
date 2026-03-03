@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pocket Violin Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            touch-action: none;
+            overflow: hidden;
+            background: #0f0f0f;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .wood-texture {
+            background: linear-gradient(90deg, #2d1b0d 0%, #4a2c16 50%, #2d1b0d 100%);
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.8);
+        }
+        .string-e { height: 1px; background: #e5e7eb; box-shadow: 0 0 2px #fff; }
+        .string-a { height: 2px; background: #d1d5db; box-shadow: 0 0 3px #fff; }
+        .string-d { height: 3px; background: #9ca3af; box-shadow: 0 0 4px #fff; }
+        .string-g { height: 4px; background: #fbbf24; box-shadow: 0 0 5px #f59e0b; }
+        
+        .fret-line {
+            border-right: 2px solid rgba(255,255,255,0.15);
+        }
+        
+        .active-string {
+            filter: brightness(1.8) drop-shadow(0 0 8px #fff);
+            transform: scaleY(1.5);
+        }
+
+        #overlay {
+            background: rgba(0,0,0,0.9);
+            transition: opacity 0.5s;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen text-white">
+
+    <!-- Start Overlay -->
+    <div id="overlay" class="fixed inset-0 z-50 flex flex-col items-center justify-center p-8 text-center">
+        <div class="mb-6 text-5xl text-amber-500">🎻</div>
+        <h1 class="text-3xl font-bold mb-4">Pocket Violin</h1>
+        <p class="text-gray-400 mb-8 max-w-xs">Hold frets on the top neck and "bow" by swiping on the strings below.</p>
+        <button id="start-btn" class="bg-amber-600 hover:bg-amber-500 text-white font-bold py-4 px-12 rounded-full text-xl transition-transform active:scale-95 shadow-lg shadow-amber-900/20">
+            START PLAYING
+        </button>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="h-12 flex items-center justify-between px-4 bg-black/50 border-b border-white/10">
+        <div class="text-xs uppercase tracking-widest text-amber-500 font-bold">Violin Engine v1.1</div>
+        <div id="debug" class="text-[10px] text-gray-500 font-mono">Audio: Idle</div>
+    </div>
+
+    <!-- Fretboard (The Neck) -->
+    <div class="flex-1 relative wood-texture flex flex-col justify-around py-8 px-4 overflow-hidden border-b-4 border-black">
+        <!-- Fret Markers -->
+        <div class="absolute inset-0 flex pointer-events-none">
+            <div class="fret-line w-[40%] h-full"></div>
+            <div class="fret-line w-[40%] h-full"></div>
+            <div class="w-[20%] h-full"></div>
+        </div>
+
+        <!-- 4 Physical Strings -->
+        <div class="flex flex-col h-full justify-around relative z-10">
+            <div id="vis-E" class="string-e w-full transition-all duration-75"></div>
+            <div id="vis-A" class="string-a w-full transition-all duration-75"></div>
+            <div id="vis-D" class="string-d w-full transition-all duration-75"></div>
+            <div id="vis-G" class="string-g w-full transition-all duration-75"></div>
+        </div>
+
+        <!-- Interaction Grid for Fretting -->
+        <div class="absolute inset-0 z-20 grid grid-cols-3 grid-rows-4">
+            <!-- Row 1: E (Top) -->
+            <div class="fret-cell" data-string="E" data-fret="0"></div>
+            <div class="fret-cell" data-string="E" data-fret="1"></div>
+            <div class="fret-cell" data-string="E" data-fret="2"></div>
+            <!-- Row 2: A -->
+            <div class="fret-cell" data-string="A" data-fret="0"></div>
+            <div class="fret-cell" data-string="A" data-fret="1"></div>
+            <div class="fret-cell" data-string="A" data-fret="2"></div>
+            <!-- Row 3: D -->
+            <div class="fret-cell" data-string="D" data-fret="0"></div>
+            <div class="fret-cell" data-string="D" data-fret="1"></div>
+            <div class="fret-cell" data-string="D" data-fret="2"></div>
+            <!-- Row 4: G (Bottom) -->
+            <div class="fret-cell" data-string="G" data-fret="0"></div>
+            <div class="fret-cell" data-string="G" data-fret="1"></div>
+            <div class="fret-cell" data-string="G" data-fret="2"></div>
+        </div>
+    </div>
+
+    <!-- Bowing Interface (Bottom Half) -->
+    <div id="bow-pad" class="h-2/5 bg-gradient-to-b from-zinc-900 to-black relative flex items-center justify-center">
+        <div class="absolute inset-0 opacity-10 pointer-events-none flex flex-col justify-around py-8 px-4">
+             <div class="border-t border-white w-full"></div>
+             <div class="border-t border-white w-full"></div>
+             <div class="border-t border-white w-full"></div>
+             <div class="border-t border-white w-full"></div>
+        </div>
+        <div class="text-zinc-700 font-bold tracking-tighter text-4xl pointer-events-none">BOW STRINGS HERE</div>
+        <div id="bow-line" class="absolute w-1 h-full bg-amber-400 opacity-0 pointer-events-none blur-[1px]"></div>
+    </div>
+
+    <script>
+        const debug = document.getElementById('debug');
+        let audioCtx;
+        const strings = {};
+        const activeFrets = { 'G': 0, 'D': 0, 'A': 0, 'E': 0 };
+
+        // Better Violin Sound Design
+        class PhysicalViolin {
+            constructor(ctx, baseFreq) {
+                this.ctx = ctx;
+                this.baseFreq = baseFreq;
+                this.isPlaying = false;
+
+                // Main Sound Source: Sawtooth simulates the stick-slip friction
+                this.osc = ctx.createOscillator();
+                this.osc.type = 'sawtooth';
+                this.osc.frequency.value = baseFreq;
+
+                // Sub-harmonic for body depth
+                this.sub = ctx.createOscillator();
+                this.sub.type = 'sine';
+                this.sub.frequency.value = baseFreq;
+                this.subGain = ctx.createGain();
+                this.subGain.gain.value = 0.05;
+
+                // Vibrato (Human Element)
+                this.vibrato = ctx.createOscillator();
+                this.vibrato.frequency.value = 5.2;
+                this.vibratoDepth = ctx.createGain();
+                this.vibratoDepth.gain.value = 0; 
+                this.vibrato.connect(this.vibratoDepth);
+                this.vibratoDepth.connect(this.osc.frequency);
+                this.vibratoDepth.connect(this.sub.frequency);
+
+                // Body Resonance (Filtering)
+                this.filter = ctx.createBiquadFilter();
+                this.filter.type = 'lowpass';
+                this.filter.frequency.value = 800;
+                this.filter.Q.value = 1.5;
+
+                this.mainGain = ctx.createGain();
+                this.mainGain.gain.value = 0;
+
+                // Routing
+                this.osc.connect(this.filter);
+                this.sub.connect(this.subGain);
+                this.subGain.connect(this.filter);
+                this.filter.connect(this.mainGain);
+                this.mainGain.connect(ctx.destination);
+
+                this.osc.start();
+                this.sub.start();
+                this.vibrato.start();
+            }
+
+            setFret(fret) {
+                const newFreq = this.baseFreq * Math.pow(2, fret / 12);
+                const now = this.ctx.currentTime;
+                this.osc.frequency.setTargetAtTime(newFreq, now, 0.03);
+                this.sub.frequency.setTargetAtTime(newFreq, now, 0.03);
+            }
+
+            bow(pressure) {
+                const now = this.ctx.currentTime;
+                this.isPlaying = true;
+                
+                // Volume based on swipe speed
+                const vol = Math.min(pressure * 0.6, 0.5);
+                this.mainGain.gain.setTargetAtTime(vol, now, 0.05);
+
+                // Brightness based on speed
+                const cutoff = 800 + (pressure * 3000);
+                this.filter.frequency.setTargetAtTime(cutoff, now, 0.1);
+
+                // Depth of vibrato increases with volume
+                this.vibratoDepth.gain.setTargetAtTime(this.osc.frequency.value * 0.012, now, 0.1);
+            }
+
+            stop() {
+                const now = this.ctx.currentTime;
+                this.isPlaying = false;
+                this.mainGain.gain.setTargetAtTime(0, now, 0.1);
+                this.vibratoDepth.gain.setTargetAtTime(0, now, 0.1);
+            }
+        }
+
+        function startAudio() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // Violin standard tuning: G3 (196), D4 (293.66), A4 (440), E5 (659.25)
+            strings['G'] = new PhysicalViolin(audioCtx, 196.00);
+            strings['D'] = new PhysicalViolin(audioCtx, 293.66);
+            strings['A'] = new PhysicalViolin(audioCtx, 440.00);
+            strings['E'] = new PhysicalViolin(audioCtx, 659.25);
+            
+            document.getElementById('overlay').style.opacity = '0';
+            setTimeout(() => document.getElementById('overlay').remove(), 500);
+            debug.innerText = "Audio: Active";
+        }
+
+        document.getElementById('start-btn').addEventListener('click', startAudio);
+
+        // Interaction Logic
+        const bowPad = document.getElementById('bow-pad');
+        const bowLine = document.getElementById('bow-line');
+        let lastX = 0;
+        let lastTime = Date.now();
+
+        const handleBow = (e) => {
+            if (!audioCtx) return;
+            const touch = e.touches ? e.touches[0] : e;
+            const now = Date.now();
+            const dt = Math.max(now - lastTime, 1);
+            const dx = Math.abs(touch.clientX - lastX);
+            const speed = dx / dt;
+
+            // Update Visuals
+            const rect = bowPad.getBoundingClientRect();
+            bowLine.style.opacity = '1';
+            bowLine.style.left = `${touch.clientX}px`;
+
+            // Determine which string is being bowed based on vertical position
+            const relativeY = (touch.clientY - rect.top) / rect.height;
+            let target;
+            if (relativeY < 0.25) target = 'E';
+            else if (relativeY < 0.5) target = 'A';
+            else if (relativeY < 0.75) target = 'D';
+            else target = 'G';
+
+            // Play the targeted string
+            Object.keys(strings).forEach(k => {
+                if (k === target) {
+                    strings[k].bow(speed * 3);
+                    document.getElementById(`vis-${k}`).classList.add('active-string');
+                } else {
+                    strings[k].stop();
+                    document.getElementById(`vis-${k}`).classList.remove('active-string');
+                }
+            });
+
+            lastX = touch.clientX;
+            lastTime = now;
+        };
+
+        bowPad.addEventListener('touchstart', handleBow);
+        bowPad.addEventListener('touchmove', (e) => { e.preventDefault(); handleBow(e); }, { passive: false });
+        bowPad.addEventListener('touchend', () => {
+            Object.values(strings).forEach(s => s.stop());
+            document.querySelectorAll('[id^="vis-"]').forEach(el => el.classList.remove('active-string'));
+            bowLine.style.opacity = '0';
+        });
+
+        // Fretboard Touches
+        document.querySelectorAll('.fret-cell').forEach(cell => {
+            cell.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const s = cell.dataset.string;
+                const f = parseInt(cell.dataset.fret);
+                strings[s]?.setFret(f);
+                cell.style.background = 'rgba(251, 191, 36, 0.2)';
+            });
+            cell.addEventListener('touchend', (e) => {
+                const s = cell.dataset.string;
+                strings[s]?.setFret(0);
+                cell.style.background = 'transparent';
+            });
+        });
+
+    </script>
+</body>
+</html>
+
