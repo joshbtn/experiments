@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RSS Pulse Reader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lucide/0.263.1/lucide.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;  
+            overflow: hidden;
+        }
+        .animate-spin-slow { animation: spin 3s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+
+    <div id="app" class="min-h-screen pb-12">
+        <!-- Header -->
+        <header class="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 py-3 shadow-sm">
+            <div class="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div class="flex items-center gap-2">
+                    <div class="bg-orange-500 p-2 rounded-lg text-white">
+                        <i data-lucide="rss" class="w-6 h-6"></i>
+                    </div>
+                    <h1 class="text-xl font-bold tracking-tight">PulseReader</h1>
+                    <div id="refresh-indicator" class="hidden ml-2 text-slate-400">
+                        <i data-lucide="refresh-cw" class="w-4 h-4 animate-spin"></i>
+                    </div>
+                </div>
+
+                <div class="flex flex-1 max-w-md gap-2">
+                    <div class="relative flex-1">
+                        <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4"></i>
+                        <input 
+                            id="search-input"
+                            type="text" 
+                            placeholder="Search articles..." 
+                            class="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all"
+                        />
+                    </div>
+                    <button 
+                        onclick="toggleModal(true)"
+                        class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-full flex items-center gap-2 text-sm font-medium transition-colors"
+                    >
+                        <i data-lucide="plus" class="w-4 h-4"></i> Add Feed
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <main class="max-w-6xl mx-auto px-4 mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <!-- Sidebar -->
+            <aside class="lg:col-span-3 space-y-6">
+                <!-- Feeds Section -->
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+                    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <i data-lucide="list" class="w-3.5 h-3.5"></i> My Feeds
+                    </h2>
+                    <div id="feeds-list" class="space-y-1">
+                        <!-- Feeds injected here -->
+                    </div>
+                </div>
+
+                <!-- Tags Section -->
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+                    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <i data-lucide="tag" class="w-3.5 h-3.5"></i> Filter Tags
+                    </h2>
+                    <div id="tags-list" class="flex flex-wrap gap-2">
+                        <!-- Tags injected here -->
+                    </div>
+                </div>
+
+                <!-- Date Filter -->
+                <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+                    <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <i data-lucide="calendar" class="w-3.5 h-3.5"></i> Date Range
+                    </h2>
+                    <select id="date-filter" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500">
+                        <option value="all">All Time</option>
+                        <option value="today">Today Only</option>
+                        <option value="week">Past 7 Days</option>
+                    </select>
+                </div>
+
+                <div id="last-updated" class="text-[10px] text-slate-400 uppercase tracking-widest px-2 font-bold flex items-center gap-2">
+                    <i data-lucide="clock" class="w-3 h-3"></i> Syncing...
+                </div>
+            </aside>
+
+            <!-- Articles Feed -->
+            <section class="lg:col-span-9 space-y-4">
+                <div class="flex items-center justify-between mb-2">
+                    <div id="article-count" class="text-sm font-medium text-slate-500">
+                        Initializing reader...
+                    </div>
+                    <button 
+                        onclick="manualRefresh()"
+                        class="text-orange-500 hover:text-orange-600 text-sm font-medium flex items-center gap-1 transition-colors"
+                    >
+                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
+                    </button>
+                </div>
+
+                <div id="articles-container" class="space-y-4">
+                    <!-- Articles injected here -->
+                </div>
+            </section>
+        </main>
+
+        <!-- Add Modal -->
+        <div id="add-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+            <div class="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
+                <div class="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <h2 class="text-lg font-bold">Add RSS Feed</h2>
+                    <button onclick="toggleModal(false)" class="text-slate-400 hover:text-slate-600">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <form id="add-feed-form" class="p-6 space-y-4">
+                    <div class="space-y-1">
+                        <label class="text-xs font-bold text-slate-400 uppercase ml-1">Feed URL</label>
+                        <input 
+                            required
+                            id="feed-url-input"
+                            type="url" 
+                            placeholder="https://example.com/rss.xml" 
+                            class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500 outline-none transition-all"
+                        />
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-xs font-bold text-slate-400 uppercase ml-1">Tags (comma separated)</label>
+                        <input 
+                            id="feed-tags-input"
+                            type="text" 
+                            placeholder="tech, news, blog" 
+                            class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500 outline-none transition-all"
+                        />
+                    </div>
+                    <button 
+                        type="submit"
+                        class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition-all shadow-lg"
+                    >
+                        Connect Source
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Configuration
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'rss-pulse-v1';
+
+        // State Management
+        let state = {
+            user: null,
+            feeds: [],
+            articles: [],
+            isRefreshing: false,
+            filters: {
+                search: '',
+                tag: 'All',
+                date: 'all',
+                feedId: 'all'
+            }
+        };
+
+        // DOM Elements
+        const feedsListEl = document.getElementById('feeds-list');
+        const tagsListEl = document.getElementById('tags-list');
+        const articlesContainerEl = document.getElementById('articles-container');
+        const addModalEl = document.getElementById('add-modal');
+        const searchInput = document.getElementById('search-input');
+        const dateFilter = document.getElementById('date-filter');
+        const articleCountEl = document.getElementById('article-count');
+        const lastUpdatedEl = document.getElementById('last-updated');
+        const refreshIndicator = document.getElementById('refresh-indicator');
+
+        // Init
+        async function init() {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+
+            onAuthStateChanged(auth, (user) => {
+                state.user = user;
+                if (user) setupSubscriptions();
+            });
+
+            // Global access for onclick handlers
+            window.toggleModal = (show) => {
+                addModalEl.classList.toggle('hidden', !show);
+                if (show) document.getElementById('feed-url-input').focus();
+            };
+
+            window.manualRefresh = () => refreshAllFeeds();
+            
+            // Event Listeners
+            searchInput.addEventListener('input', (e) => {
+                state.filters.search = e.target.value;
+                render();
+            });
+
+            dateFilter.addEventListener('change', (e) => {
+                state.filters.date = e.target.value;
+                render();
+            });
+
+            document.getElementById('add-feed-form').addEventListener('submit', handleAddFeed);
+
+            // Timer: 5 Minutes
+            setInterval(() => refreshAllFeeds(), 5 * 60 * 1000);
+            
+            lucide.createIcons();
+        }
+
+        function setupSubscriptions() {
+            const feedsRef = collection(db, 'artifacts', appId, 'users', state.user.uid, 'feeds');
+            onSnapshot(feedsRef, (snapshot) => {
+                state.feeds = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                refreshAllFeeds();
+            }, (err) => console.error("Firestore error:", err));
+        }
+
+        async function handleAddFeed(e) {
+            e.preventDefault();
+            const url = document.getElementById('feed-url-input').value;
+            const tags = document.getElementById('feed-tags-input').value
+                .split(',')
+                .map(t => t.trim())
+                .filter(t => t);
+            
+            const feedId = crypto.randomUUID();
+            await setDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'feeds', feedId), {
+                url,
+                tags,
+                createdAt: Timestamp.now()
+            });
+
+            e.target.reset();
+            toggleModal(false);
+        }
+
+        window.deleteFeed = async (id) => {
+            if (!confirm('Remove this feed?')) return;
+            await deleteDoc(doc(db, 'artifacts', appId, 'users', state.user.uid, 'feeds', id));
+        };
+
+        async function refreshAllFeeds() {
+            if (state.isRefreshing || state.feeds.length === 0) return;
+            state.isRefreshing = true;
+            refreshIndicator.classList.remove('hidden');
+
+            let allArticles = [];
+            const proxy = 'https://api.allorigins.win/get?url=';
+
+            for (const feed of state.feeds) {
+                try {
+                    const response = await fetch(proxy + encodeURIComponent(feed.url));
+                    const data = await response.json();
+                    const parser = new DOMParser();
+                    const xml = parser.parseFromString(data.contents, "text/xml");
+                    
+                    const channelTitle = xml.querySelector('channel > title')?.textContent || feed.url;
+                    const items = xml.querySelectorAll('item');
+
+                    Array.from(items).forEach(item => {
+                        allArticles.push({
+                            id: item.querySelector('guid')?.textContent || item.querySelector('link')?.textContent,
+                            title: item.querySelector('title')?.textContent || 'Untitled',
+                            link: item.querySelector('link')?.textContent,
+                            description: (item.querySelector('description')?.textContent || '').replace(/<[^>]*>?/gm, '').substring(0, 250),
+                            pubDate: new Date(item.querySelector('pubDate')?.textContent || Date.now()),
+                            feedId: feed.id,
+                            feedTitle: channelTitle,
+                            tags: feed.tags || []
+                        });
+                    });
+                } catch (e) {
+                    console.error(`Failed to fetch ${feed.url}`, e);
+                }
+            }
+
+            allArticles.sort((a, b) => b.pubDate - a.pubDate);
+            state.articles = allArticles;
+            state.isRefreshing = false;
+            refreshIndicator.classList.add('hidden');
+            lastUpdatedEl.innerHTML = `<i data-lucide="clock" class="w-3 h-3"></i> Sync: ${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}`;
+            lucide.createIcons();
+            render();
+        }
+
+        function render() {
+            renderFeeds();
+            renderTags();
+            renderArticles();
+        }
+
+        function renderFeeds() {
+            feedsListEl.innerHTML = `
+                <button onclick="setFeedFilter('all')" class="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${state.filters.feedId === 'all' ? 'bg-orange-50 text-orange-700 font-semibold' : 'hover:bg-slate-100'}">
+                    All Sources
+                </button>
+            ` + state.feeds.map(f => `
+                <div class="group flex items-center justify-between">
+                    <button onclick="setFeedFilter('${f.id}')" class="flex-1 text-left px-3 py-2 rounded-lg text-sm truncate transition-colors ${state.filters.feedId === f.id ? 'bg-orange-50 text-orange-700 font-semibold' : 'hover:bg-slate-100'}">
+                        ${f.url.split('/')[2]}
+                    </button>
+                    <button onclick="deleteFeed('${f.id}')" class="p-1 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+            `).join('');
+            
+            window.setFeedFilter = (id) => { state.filters.feedId = id; render(); };
+            lucide.createIcons();
+        }
+
+        function renderTags() {
+            const tags = new Set(['All']);
+            state.feeds.forEach(f => f.tags?.forEach(t => tags.add(t)));
+            
+            tagsListEl.innerHTML = Array.from(tags).map(tag => `
+                <button onclick="setTagFilter('${tag}')" class="px-3 py-1 rounded-full text-xs font-medium border transition-all ${state.filters.tag === tag ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}">
+                    ${tag}
+                </button>
+            `).join('');
+
+            window.setTagFilter = (tag) => { state.filters.tag = tag; render(); };
+        }
+
+        function renderArticles() {
+            const filtered = state.articles.filter(a => {
+                const matchesSearch = a.title.toLowerCase().includes(state.filters.search.toLowerCase()) || 
+                                     a.description.toLowerCase().includes(state.filters.search.toLowerCase());
+                const matchesTag = state.filters.tag === 'All' || a.tags.includes(state.filters.tag);
+                const matchesFeed = state.filters.feedId === 'all' || a.feedId === state.filters.feedId;
+                
+                let matchesDate = true;
+                if (state.filters.date === 'today') {
+                    matchesDate = a.pubDate.toDateString() === new Date().toDateString();
+                } else if (state.filters.date === 'week') {
+                    const weekAgo = new Date();
+                    weekAgo.setDate(weekAgo.getDate() - 7);
+                    matchesDate = a.pubDate >= weekAgo;
+                }
+
+                return matchesSearch && matchesTag && matchesFeed && matchesDate;
+            });
+
+            articleCountEl.textContent = `Showing ${filtered.length} articles`;
+
+            if (filtered.length === 0) {
+                articlesContainerEl.innerHTML = `
+                    <div class="bg-white rounded-3xl p-12 text-center border-2 border-dashed border-slate-200">
+                        <i data-lucide="search" class="w-12 h-12 mx-auto mb-4 text-slate-300"></i>
+                        <h3 class="text-xl font-bold text-slate-800">No results found</h3>
+                        <p class="text-slate-500 mt-2">Adjust your filters or add more sources.</p>
+                    </div>
+                `;
+            } else {
+                articlesContainerEl.innerHTML = filtered.map(a => `
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 hover:border-orange-200 transition-all group">
+                        <div class="flex items-start justify-between gap-4">
+                            <div class="space-y-2">
+                                <div class="flex items-center gap-2 text-xs font-bold text-orange-500 uppercase tracking-wider">
+                                    <span>${a.feedTitle}</span>
+                                    <span class="text-slate-300">•</span>
+                                    <span class="text-slate-400 font-medium normal-case">${a.pubDate.toLocaleDateString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</span>
+                                </div>
+                                <a href="${a.link}" target="_blank" class="block group-hover:text-orange-600">
+                                    <h3 class="text-lg font-bold leading-snug">${a.title}</h3>
+                                </a>
+                                <p class="text-slate-600 text-sm leading-relaxed line-clamp-2">${a.description}</p>
+                                <div class="flex flex-wrap gap-1 mt-3">
+                                    ${a.tags.map(t => `<span class="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded uppercase font-bold">${t}</span>`).join('')}
+                                </div>
+                            </div>
+                            <a href="${a.link}" target="_blank" class="p-3 bg-slate-50 text-slate-400 rounded-xl hover:bg-orange-50 hover:text-orange-500 transition-all">
+                                <i data-lucide="external-link" class="w-5 h-5"></i>
+                            </a>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            lucide.createIcons();
+        }
+
+        // Start App
+        init();
+    </script>
+</body>
+</html>
+
