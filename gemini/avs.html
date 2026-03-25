@@ -3,256 +3,363 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AVS Custom Studio</title>
+    <title>AVS Live Studio - Real-time Algorithm Editor</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; color: #eee; font-family: 'Inter', sans-serif; }
+        body { margin: 0; background: #000; overflow: hidden; color: #fff; font-family: 'Courier New', monospace; }
         canvas { display: block; width: 100vw; height: 100vh; }
-        .glass { background: rgba(10, 10, 10, 0.8); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        .input-code { font-family: 'Fira Code', 'Courier New', monospace; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #0f0; padding: 8px; width: 100%; border-radius: 4px; font-size: 12px; }
-        #ui-layer { transition: opacity 0.8s ease; }
-        .hidden-ui { opacity: 0 !important; cursor: none; }
-        #editor-drawer { transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); transform: translateX(100%); }
-        #editor-drawer.open { transform: translateX(0); }
+        
+        /* Glassmorphism Drawer */
+        .drawer {
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            background: rgba(10, 10, 10, 0.6);
+            backdrop-filter: blur(12px);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .drawer.closed { transform: translateX(-100%); }
+        
+        .code-area {
+            background: rgba(0, 0, 0, 0.4);
+            color: #4ade80; /* emerald-400 */
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 11px;
+            width: 100%;
+            resize: none;
+            outline: none;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        /* Hide UI animation */
+        #ui-container { transition: opacity 0.5s ease; }
+        .ui-hidden { opacity: 0; cursor: none; }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
     </style>
 </head>
-<body class="bg-black">
+<body>
 
-    <canvas id="mainCanvas"></canvas>
-    <canvas id="bufferCanvas" style="display:none;"></canvas>
+    <canvas id="renderCanvas"></canvas>
 
-    <!-- UI Overlay (Fades out) -->
-    <div id="ui-layer" class="fixed inset-0 pointer-events-none">
-        <div class="absolute top-8 left-8 flex items-center gap-4">
-            <div class="glass px-4 py-2 rounded-full flex items-center gap-3 border-indigo-500/30">
-                <div class="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
-                <div class="text-[10px] font-black tracking-widest uppercase opacity-70">Legacy Mode</div>
-                <div id="presetDisplay" class="text-xs font-bold text-white tracking-wider">CUSTOM_ALGO_01</div>
-            </div>
-        </div>
+    <!-- Initial Boot Modal -->
+    <div id="bootOverlay" class="fixed inset-0 bg-black z-[100] flex flex-col items-center justify-center text-center p-6">
+        <div class="mb-4 text-indigo-500 font-black tracking-[0.4em] text-xl">AVS VIRTUAL MACHINE</div>
+        <p class="text-zinc-500 text-sm mb-8 max-w-xs">Classic 1998 visualization logic ported to modern hardware acceleration.</p>
+        <button id="bootBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white px-10 py-4 rounded-full font-bold tracking-widest text-sm transition-all transform active:scale-95 shadow-xl shadow-indigo-500/20">
+            BOOT SYSTEM
+        </button>
     </div>
 
-    <!-- Right Sidebar Editor -->
-    <div id="editor-drawer" class="fixed top-0 right-0 h-full w-80 glass z-50 p-6 flex flex-col gap-4 shadow-2xl overflow-y-auto pointer-events-auto">
-        <div class="flex justify-between items-center mb-2">
-            <h2 class="text-sm font-black tracking-widest uppercase text-indigo-400">Math Studio</h2>
-            <button id="closeEditor" class="text-zinc-500 hover:text-white text-xs">CLOSE</button>
-        </div>
-
-        <div class="space-y-4">
-            <section>
-                <label class="text-[10px] font-bold text-zinc-500 uppercase block mb-1">Per-Frame Formula</label>
-                <p class="text-[9px] text-zinc-600 mb-2">Variables: bass, mid, treb, time</p>
-                <textarea id="code-frame" class="input-code h-24" spellcheck="false">zoom = 1.0 + (bass * 0.1);
-rot = 0.01 * sin(time);
-dx = 0;
-dy = 0;</textarea>
-            </section>
-
-            <section>
-                <label class="text-[10px] font-bold text-zinc-500 uppercase block mb-1">Waveform Style</label>
-                <select id="wave-type" class="input-code">
-                    <option value="line">Line Scope</option>
-                    <option value="circle">Radial Circle</option>
-                    <option value="dots">Particle Cloud</option>
-                </select>
-            </section>
-
-            <div class="border-t border-white/5 pt-4">
-                <label class="text-[10px] font-bold text-zinc-500 uppercase block mb-2">Import AVS / Milk</label>
-                <div id="dropzone" class="border-2 border-dashed border-white/10 rounded-xl p-4 text-center hover:border-indigo-500/50 transition-colors cursor-pointer">
-                    <span class="text-[10px] text-zinc-400">Drop .avs or .milk file here</span>
-                    <input type="file" id="fileInput" class="hidden" accept=".avs,.milk">
-                </div>
+    <!-- Main UI Container -->
+    <div id="ui-container" class="fixed inset-0 pointer-events-none">
+        
+        <!-- Sliding Drawer -->
+        <div id="sideDrawer" class="drawer absolute top-0 left-0 w-80 h-full pointer-events-auto flex flex-col shadow-2xl z-50">
+            <!-- Drawer Header -->
+            <div class="p-6 border-b border-white/10 flex justify-between items-center bg-black/20">
+                <span class="text-[10px] font-black tracking-widest text-indigo-400 uppercase">AVS STUDIO v2.0</span>
+                <button id="closeDrawer" class="text-zinc-500 hover:text-white transition-colors">
+                    <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
+                </button>
             </div>
 
-            <button id="applyBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-xl font-bold text-xs tracking-widest transition-all uppercase mt-4">Apply Equations</button>
+            <!-- Scrollable Content -->
+            <div class="flex-1 overflow-y-auto p-6 space-y-8">
+                
+                <!-- Presets List -->
+                <section>
+                    <h3 class="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">Preset Library</h3>
+                    <div id="presetList" class="grid grid-cols-1 gap-1">
+                        <!-- Buttons injected via JS -->
+                    </div>
+                </section>
+
+                <!-- Code Editors -->
+                <section class="space-y-4">
+                    <h3 class="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Algorithm Editor</h3>
+                    
+                    <div>
+                        <label class="text-[9px] text-zinc-600 uppercase mb-1 block">Frame Logic (Stateful)</label>
+                        <textarea id="code-frame" class="code-area h-32" spellcheck="false"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="text-[9px] text-zinc-600 uppercase mb-1 block">Beat Logic (Triggers)</label>
+                        <textarea id="code-beat" class="code-area h-20" spellcheck="false"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="text-[9px] text-zinc-600 uppercase mb-1 block">Render Mode</label>
+                        <select id="renderMode" class="code-area text-indigo-300">
+                            <option value="star">Pulsing Star</option>
+                            <option value="hyperspeed">Hyper Speed</option>
+                            <option value="oscilloscope">Oscilloscope</option>
+                            <option value="spectrum">Spectrum Analyzer</option>
+                            <option value="dots">Particle Field</option>
+                        </select>
+                    </div>
+
+                    <button id="applyBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all shadow-lg shadow-indigo-900/20">
+                        Apply Changes
+                    </button>
+                </section>
+            </div>
+
+            <!-- Drawer Footer Stats -->
+            <div class="p-4 bg-black/40 border-t border-white/10 flex justify-between items-center font-mono text-[10px]">
+                <div id="fpsCounter" class="text-emerald-500">00 FPS</div>
+                <div id="beatSignal" class="text-zinc-500">SIGNAL: IDLE</div>
+            </div>
         </div>
-    </div>
 
-    <!-- Fab to open editor -->
-    <button id="openEditor" class="fixed bottom-8 right-8 w-12 h-12 glass rounded-full flex items-center justify-center hover:bg-white/10 transition-all z-40">
-        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
-    </button>
-
-    <!-- Initial Start -->
-    <div id="startScreen" class="fixed inset-0 bg-black z-[100] flex items-center justify-center">
-        <button id="initBtn" class="bg-white text-black px-12 py-4 rounded-full font-black tracking-widest hover:scale-105 transition-transform uppercase text-sm">Initialize Engine</button>
+        <!-- Floating Open Button (Visible when drawer is closed) -->
+        <button id="openDrawer" class="absolute top-6 left-6 w-12 h-12 glass rounded-full flex items-center justify-center pointer-events-auto hover:bg-white/10 transition-all opacity-0">
+            <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
     </div>
 
     <script>
-        const canvas = document.getElementById('mainCanvas');
-        const buffer = document.getElementById('bufferCanvas');
-        const ctx = canvas.getContext('2d', { alpha: false });
-        const bCtx = buffer.getContext('2d', { alpha: false });
-        
-        let audioCtx, analyser, dataArray;
-        let isRunning = false;
-        let lastInteraction = Date.now();
-        
-        // Engine State Variables
-        const engine = {
-            bass: 0, mid: 0, treb: 0,
-            time: 0,
-            zoom: 1.02, rot: 0.005, dx: 0, dy: 0,
-            waveType: 'line'
+        const presets = [
+            { name: "Pulsing Star", mode: "star", frame: "zoom = 1.02 + (bass * 0.15);\nrot = rot + 0.01;\ndx = 0; dy = 0;", beat: "zoom = 1.4; r0 = r0 + 1;" },
+            { name: "Hyper Speed", mode: "hyperspeed", frame: "zoom = 1.1 + (bass * 0.3);\ndx = 0; dy = 0;\nrot = 0;", beat: "zoom = 1.6;" },
+            { name: "Neon Wormhole", mode: "oscilloscope", frame: "zoom = 1.04;\nrot = rot + 0.05 + (bass * 0.1);\ndx = 0; dy = 0;", beat: "rot = rot + 0.5;" },
+            { name: "80s Synth Drift", mode: "oscilloscope", frame: "zoom = 1.01;\ndx = 0.01 * sin(time);\ndy = 0.005;\nrot = 0;", beat: "dy = 0.03;" },
+            { name: "The Matrix", mode: "dots", frame: "zoom = 1.0;\ndy = 0.02;\ndx = 0;\nrot = 0;", beat: "r0 = r0 + 1;" },
+            { name: "Quantum Tunnel", mode: "star", frame: "zoom = 0.98;\nrot = rot - 0.02;\ndx = 0.01 * cos(time);", beat: "zoom = 1.15;" },
+            { name: "Acid Trip", mode: "spectrum", frame: "zoom = 1.05;\nrot = 0.1 * sin(time * 0.5);\ndx = 0.005 * cos(time);", beat: "rot = rot * -1.2;" },
+            { name: "Event Horizon", mode: "oscilloscope", frame: "zoom = 0.95;\nrot = rot + 0.02;\ndx = 0; dy = 0;", beat: "zoom = 0.7;" },
+            { name: "Cyber Grid", mode: "oscilloscope", frame: "zoom = 1.02;\nrot = 0;\ndx = 0; dy = 0.012;", beat: "dx = 0.06;" },
+            { name: "Solar Flare", mode: "star", frame: "zoom = 1.15;\nrot = rot + 0.08;\ndx = 0.005 * sin(time);", beat: "zoom = 1.6;" },
+            { name: "Digital Zen", mode: "oscilloscope", frame: "zoom = 1.015;\nrot = 0.002;\ndx = 0; dy = 0;", beat: "r0 = r0 + 5;" },
+            { name: "Black Hole Sun", mode: "star", frame: "zoom = 0.995;\nrot = rot + 0.01;\ndx = 0; dy = 0;", beat: "zoom = 0.85;" },
+            { name: "Binary Sunset", mode: "spectrum", frame: "zoom = 1.0;\ndx = 0.008;\ndy = 0;\nrot = 0;", beat: "r0 = r0 + 1;" },
+            { name: "DNA Spiral", mode: "oscilloscope", frame: "zoom = 1.02;\nrot = rot + 0.06;\ndx = 0.01 * sin(time);", beat: "rot = rot + 1.2;" },
+            { name: "Deep Space 9", mode: "hyperspeed", frame: "zoom = 1.03;\nrot = 0.002;\ndx = 0; dy = 0;", beat: "zoom = 1.2;" },
+            { name: "Plasma Leak", mode: "spectrum", frame: "zoom = 1.07;\nrot = 0.02;\ndx = 0.003; dy = 0.003;", beat: "zoom = 1.3;" },
+            { name: "Techno Spider", mode: "dots", frame: "zoom = 1.04;\nrot = rot + 0.25 * bass;\ndx = 0; dy = 0;", beat: "rot = rot + 1.5;" },
+            { name: "Subspace Pulse", mode: "oscilloscope", frame: "zoom = 1.0 + (bass * 0.1);\ndx = 0; dy = 0;\nrot = 0;", beat: "zoom = 1.3;" },
+            { name: "Void Drifter", mode: "dots", frame: "zoom = 0.995;\ndx = 0.006 * sin(time);\ndy = 0.006 * cos(time);", beat: "zoom = 1.1;" },
+            { name: "Neon Horizon", mode: "spectrum", frame: "zoom = 1.02;\ndx = 0; dy = 0.004;\nrot = 0;", beat: "zoom = 1.25;" }
+        ];
+
+        // VM State
+        const VM = {
+            regs: new Array(100).fill(0),
+            zoom: 1, rot: 0, dx: 0, dy: 0,
+            bass: 0, mid: 0, treb: 0, time: 0,
+            beat: false, lastBass: 0,
+            frameFunc: null, beatFunc: null,
+
+            compile(code) {
+                return new Function('v', `
+                    let { zoom, rot, dx, dy, beat, time, bass, mid, treb } = v;
+                    ${this.regs.map((_, i) => `let r${i} = this.regs[${i}];`).join(' ')}
+                    try { ${code} } catch(e) { console.error(e); }
+                    return { zoom, rot, dx, dy, ${this.regs.map((_, i) => `r${i}`).join(',')} };
+                `);
+            },
+
+            update(results) {
+                this.zoom = results.zoom; this.rot = results.rot;
+                this.dx = results.dx; this.dy = results.dy;
+                this.regs.forEach((_, i) => this.regs[i] = results[`r${i}`]);
+            }
         };
 
-        // UI Management
-        function resetFade() {
-            lastInteraction = Date.now();
-            document.getElementById('ui-layer').classList.remove('hidden-ui');
-            document.body.style.cursor = 'default';
+        const canvas = document.getElementById('renderCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const buffer = document.createElement('canvas');
+        const bCtx = buffer.getContext('2d', { alpha: false });
+
+        let audioCtx, analyser, dataArray;
+        let isRunning = false;
+        let frameCount = 0, lastFpsUpdate = 0;
+
+        // UI Interactions
+        const drawer = document.getElementById('sideDrawer');
+        const openBtn = document.getElementById('openDrawer');
+        const closeBtn = document.getElementById('closeDrawer');
+        const applyBtn = document.getElementById('applyBtn');
+
+        function toggleDrawer(open) {
+            drawer.classList.toggle('closed', !open);
+            openBtn.style.opacity = open ? '0' : '1';
+            openBtn.style.pointerEvents = open ? 'none' : 'auto';
         }
 
-        window.addEventListener('mousemove', resetFade);
-        setInterval(() => {
-            if (Date.now() - lastInteraction > 3000) {
-                document.getElementById('ui-layer').classList.add('hidden-ui');
-                document.body.style.cursor = 'none';
-            }
-        }, 1000);
+        closeBtn.onclick = () => toggleDrawer(false);
+        openBtn.onclick = () => toggleDrawer(true);
 
-        // Sidebar Management
-        const drawer = document.getElementById('editor-drawer');
-        document.getElementById('openEditor').onclick = () => drawer.classList.add('open');
-        document.getElementById('closeEditor').onclick = () => drawer.classList.remove('open');
+        function applyPreset(p) {
+            document.getElementById('code-frame').value = p.frame;
+            document.getElementById('code-beat').value = p.beat;
+            document.getElementById('renderMode').value = p.mode;
+            
+            VM.frameFunc = VM.compile(p.frame);
+            VM.beatFunc = VM.compile(p.beat);
 
-        // Logic Parser
-        function applyMath() {
-            const code = document.getElementById('code-frame').value;
-            engine.waveType = document.getElementById('wave-type').value;
-            // Basic sandboxed evaluator
+            // UI feedback
+            document.querySelectorAll('.preset-btn').forEach(btn => {
+                btn.classList.toggle('bg-indigo-600/20', btn.dataset.name === p.name);
+                btn.classList.toggle('text-indigo-400', btn.dataset.name === p.name);
+            });
+        }
+
+        async function boot() {
             try {
-                const func = new Function('bass', 'mid', 'treb', 'time', 'sin', 'cos', 'tan', `
-                    let zoom = 1.02, rot = 0.01, dx = 0, dy = 0;
-                    ${code}
-                    return { zoom, rot, dx, dy };
-                `);
-                engine.eval = func;
-                console.log("Math applied successfully.");
-            } catch (e) {
-                alert("Formula Error: " + e.message);
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = audioCtx.createMediaStreamSource(stream);
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 512;
+                source.connect(analyser);
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                
+                handleResize();
+                applyPreset(presets[0]);
+                
+                document.getElementById('bootOverlay').style.display = 'none';
+                isRunning = true;
+                requestAnimationFrame(loop);
+            } catch (err) {
+                alert("Microphone access is required for real-time visualization.");
             }
         }
 
-        // File Import
-        document.getElementById('dropzone').onclick = () => document.getElementById('fileInput').click();
-        document.getElementById('fileInput').onchange = (e) => handleFile(e.target.files[0]);
-        
-        async function handleFile(file) {
-            if (!file) return;
-            const text = await file.text();
-            console.log("File loaded. Attempting to extract formulas...");
-            // Real AVS/Milk files are binary or specific text formats
-            // Here we try to find equation strings like "zoom=" or "rot="
-            const zoomMatch = text.match(/zoom=([^;]+)/);
-            const rotMatch = text.match(/rot=([^;]+)/);
-            if (zoomMatch || rotMatch) {
-                let newCode = "";
-                if (zoomMatch) newCode += `zoom = ${zoomMatch[1]};\n`;
-                if (rotMatch) newCode += `rot = ${rotMatch[1]};\n`;
-                document.getElementById('code-frame').value = newCode;
-                applyMath();
-                document.getElementById('presetDisplay').innerText = file.name.toUpperCase();
-            } else {
-                alert("Could not find standard math equations in this file. Try pasting formulas manually.");
-            }
-        }
-
-        async function init() {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const source = audioCtx.createMediaStreamSource(stream);
-            analyser = audioCtx.createAnalyser();
-            analyser.fftSize = 512;
-            source.connect(analyser);
-            dataArray = new Uint8Array(analyser.frequencyBinCount);
-            
-            canvas.width = buffer.width = window.innerWidth;
-            canvas.height = buffer.height = window.innerHeight;
-            
-            applyMath();
-            document.getElementById('startScreen').style.display = 'none';
-            isRunning = true;
-            requestAnimationFrame(render);
-        }
-
-        function render(now) {
+        function loop(now) {
             if (!isRunning) return;
-            const w = canvas.width;
-            const h = canvas.height;
-            engine.time = now / 1000;
+            const w = canvas.width, h = canvas.height;
+            VM.time = now / 1000;
 
-            // 1. Audio Analysis
+            // Monitor FPS
+            frameCount++;
+            if (now - lastFpsUpdate > 1000) {
+                document.getElementById('fpsCounter').innerText = `${frameCount} FPS`;
+                frameCount = 0; lastFpsUpdate = now;
+            }
+
+            // Audio & Beat detection
             analyser.getByteFrequencyData(dataArray);
             let b = 0, m = 0, t = 0;
-            for(let i=0; i<10; i++) b += dataArray[i];
-            for(let i=10; i<30; i++) m += dataArray[i];
-            for(let i=30; i<60; i++) t += dataArray[i];
-            engine.bass = b/10/255;
-            engine.mid = m/20/255;
-            engine.treb = t/30/255;
-
-            // 2. Run Custom Math
-            if (engine.eval) {
-                const results = engine.eval(engine.bass, engine.mid, engine.treb, engine.time, Math.sin, Math.cos, Math.tan);
-                engine.zoom = results.zoom;
-                engine.rot = results.rot;
-                engine.dx = results.dx;
-                engine.dy = results.dy;
+            for(let i=0; i<8; i++) b += dataArray[i];
+            for(let i=8; i<25; i++) m += dataArray[i];
+            for(let i=25; i<50; i++) t += dataArray[i];
+            VM.bass = b/8/255; VM.mid = m/17/255; VM.treb = t/25/255;
+            
+            VM.beat = false;
+            if (VM.bass > VM.lastBass * 1.35 && VM.bass > 0.65) {
+                VM.beat = true;
+                document.getElementById('beatSignal').innerText = "SIGNAL: BEAT";
+                document.getElementById('beatSignal').className = "text-indigo-400";
+                VM.update(VM.beatFunc.call(VM, VM));
+            } else {
+                document.getElementById('beatSignal').innerText = "SIGNAL: IDLE";
+                document.getElementById('beatSignal').className = "text-zinc-500";
             }
+            VM.lastBass = VM.bass;
 
-            // 3. Feedback Loop
+            // Frame math
+            VM.update(VM.frameFunc.call(VM, VM));
+
+            // AVS Displacement Logic
+            bCtx.clearRect(0,0,w,h);
             bCtx.drawImage(canvas, 0, 0);
             
             ctx.save();
-            ctx.translate(w/2 + (engine.dx * w), h/2 + (engine.dy * h));
-            ctx.scale(engine.zoom, engine.zoom);
-            ctx.rotate(engine.rot);
+            ctx.translate(w/2 + (VM.dx * w), h/2 + (VM.dy * h));
+            ctx.scale(VM.zoom, VM.zoom);
+            ctx.rotate(VM.rot);
             ctx.translate(-w/2, -h/2);
-            
-            ctx.globalAlpha = 0.94;
+            ctx.globalAlpha = 0.96; 
             ctx.drawImage(buffer, 0, 0);
             ctx.restore();
 
-            // 4. Draw Waveform
+            // Render Primitives
+            const mode = document.getElementById('renderMode').value;
             ctx.beginPath();
-            ctx.strokeStyle = `hsla(${(now/10)%360}, 80%, 60%, 0.8)`;
-            ctx.lineWidth = 2 + (engine.bass * 10);
+            ctx.lineWidth = 1.5 + (VM.bass * 10);
+            ctx.strokeStyle = `hsla(${(now/15)%360}, 100%, 75%, 0.8)`;
             
-            if (engine.waveType === 'line') {
+            if (mode === 'star') {
+                const points = 5;
+                const innerRad = (h/7) * (VM.bass + 0.1);
+                const outerRad = (h/3) * (1.1 + VM.bass);
+                for(let i=0; i<=points*2; i++) {
+                    const ang = (i / (points*2)) * Math.PI * 2;
+                    const r = i % 2 === 0 ? outerRad : innerRad;
+                    ctx.lineTo(w/2 + Math.cos(ang) * r, h/2 + Math.sin(ang) * r);
+                }
+            } else if (mode === 'hyperspeed') {
+                for(let i=0; i<60; i++) {
+                    const x = (Math.sin(i * 10 + now/400) * w/2) + w/2;
+                    const y = (Math.cos(i * 10 + now/600) * h/2) + h/2;
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x + VM.dx*20, y + VM.dy*20);
+                }
+            } else if (mode === 'oscilloscope') {
                 const step = w / dataArray.length;
                 for(let i=0; i<dataArray.length; i++) {
-                    const x = i * step;
-                    const y = (h/2) + (dataArray[i]/128 - 1) * (h/3);
-                    if (i===0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                    ctx.lineTo(i * step, (h/2) + (dataArray[i]/128 - 1) * (h/2.5));
                 }
-            } else if (engine.waveType === 'circle') {
+            } else if (mode === 'spectrum') {
+                const step = w / dataArray.length;
                 for(let i=0; i<dataArray.length; i++) {
-                    const rad = (h/4) + (dataArray[i]/255) * (h/4);
-                    const ang = (i / dataArray.length) * Math.PI * 2;
-                    const x = w/2 + Math.cos(ang) * rad;
-                    const y = h/2 + Math.sin(ang) * rad;
-                    if (i===0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                    ctx.lineTo(i * step, h - (dataArray[i]/255 * h));
                 }
-                ctx.closePath();
+            } else if (mode === 'dots') {
+                for(let i=0; i<40; i++) {
+                    ctx.rect(Math.random() * w, Math.random() * h, 2, 2);
+                }
             }
             ctx.stroke();
 
-            // 5. Fade black slightly
-            ctx.fillStyle = 'rgba(0,0,0,0.08)';
+            // Accumulation control
+            ctx.fillStyle = 'rgba(0,0,0,0.06)';
             ctx.fillRect(0,0,w,h);
 
-            requestAnimationFrame(render);
+            requestAnimationFrame(loop);
         }
 
-        document.getElementById('initBtn').onclick = init;
-        document.getElementById('applyBtn').onclick = applyMath;
-        window.onresize = () => {
+        function handleResize() {
             canvas.width = buffer.width = window.innerWidth;
             canvas.height = buffer.height = window.innerHeight;
+            if (isRunning) applyFormulasFromEditor();
+        }
+
+        function applyFormulasFromEditor() {
+            VM.frameFunc = VM.compile(document.getElementById('code-frame').value);
+            VM.beatFunc = VM.compile(document.getElementById('code-beat').value);
+        }
+
+        // Initialize preset list
+        const list = document.getElementById('presetList');
+        presets.forEach(p => {
+            const btn = document.createElement('button');
+            btn.dataset.name = p.name;
+            btn.className = "preset-btn text-left px-3 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest text-zinc-500 hover:text-white transition-all border border-transparent hover:bg-white/5";
+            btn.innerText = p.name;
+            btn.onclick = () => applyPreset(p);
+            list.appendChild(btn);
+        });
+
+        document.getElementById('bootBtn').onclick = boot;
+        applyBtn.onclick = applyFormulasFromEditor;
+        window.onresize = handleResize;
+
+        // Interaction Fading
+        let lastMove = Date.now();
+        window.onmousemove = () => {
+            lastMove = Date.now();
+            document.getElementById('ui-container').classList.remove('ui-hidden');
         };
+        setInterval(() => {
+            if (Date.now() - lastMove > 5000 && drawer.classList.contains('closed')) {
+                document.getElementById('ui-container').classList.add('ui-hidden');
+            }
+        }, 1000);
+
     </script>
 </body>
 </html>
