@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AVS Custom Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; color: #eee; font-family: 'Inter', sans-serif; }
+        canvas { display: block; width: 100vw; height: 100vh; }
+        .glass { background: rgba(10, 10, 10, 0.8); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .input-code { font-family: 'Fira Code', 'Courier New', monospace; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); color: #0f0; padding: 8px; width: 100%; border-radius: 4px; font-size: 12px; }
+        #ui-layer { transition: opacity 0.8s ease; }
+        .hidden-ui { opacity: 0 !important; cursor: none; }
+        #editor-drawer { transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); transform: translateX(100%); }
+        #editor-drawer.open { transform: translateX(0); }
+    </style>
+</head>
+<body class="bg-black">
+
+    <canvas id="mainCanvas"></canvas>
+    <canvas id="bufferCanvas" style="display:none;"></canvas>
+
+    <!-- UI Overlay (Fades out) -->
+    <div id="ui-layer" class="fixed inset-0 pointer-events-none">
+        <div class="absolute top-8 left-8 flex items-center gap-4">
+            <div class="glass px-4 py-2 rounded-full flex items-center gap-3 border-indigo-500/30">
+                <div class="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
+                <div class="text-[10px] font-black tracking-widest uppercase opacity-70">Legacy Mode</div>
+                <div id="presetDisplay" class="text-xs font-bold text-white tracking-wider">CUSTOM_ALGO_01</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Sidebar Editor -->
+    <div id="editor-drawer" class="fixed top-0 right-0 h-full w-80 glass z-50 p-6 flex flex-col gap-4 shadow-2xl overflow-y-auto pointer-events-auto">
+        <div class="flex justify-between items-center mb-2">
+            <h2 class="text-sm font-black tracking-widest uppercase text-indigo-400">Math Studio</h2>
+            <button id="closeEditor" class="text-zinc-500 hover:text-white text-xs">CLOSE</button>
+        </div>
+
+        <div class="space-y-4">
+            <section>
+                <label class="text-[10px] font-bold text-zinc-500 uppercase block mb-1">Per-Frame Formula</label>
+                <p class="text-[9px] text-zinc-600 mb-2">Variables: bass, mid, treb, time</p>
+                <textarea id="code-frame" class="input-code h-24" spellcheck="false">zoom = 1.0 + (bass * 0.1);
+rot = 0.01 * sin(time);
+dx = 0;
+dy = 0;</textarea>
+            </section>
+
+            <section>
+                <label class="text-[10px] font-bold text-zinc-500 uppercase block mb-1">Waveform Style</label>
+                <select id="wave-type" class="input-code">
+                    <option value="line">Line Scope</option>
+                    <option value="circle">Radial Circle</option>
+                    <option value="dots">Particle Cloud</option>
+                </select>
+            </section>
+
+            <div class="border-t border-white/5 pt-4">
+                <label class="text-[10px] font-bold text-zinc-500 uppercase block mb-2">Import AVS / Milk</label>
+                <div id="dropzone" class="border-2 border-dashed border-white/10 rounded-xl p-4 text-center hover:border-indigo-500/50 transition-colors cursor-pointer">
+                    <span class="text-[10px] text-zinc-400">Drop .avs or .milk file here</span>
+                    <input type="file" id="fileInput" class="hidden" accept=".avs,.milk">
+                </div>
+            </div>
+
+            <button id="applyBtn" class="w-full bg-indigo-600 hover:bg-indigo-500 py-3 rounded-xl font-bold text-xs tracking-widest transition-all uppercase mt-4">Apply Equations</button>
+        </div>
+    </div>
+
+    <!-- Fab to open editor -->
+    <button id="openEditor" class="fixed bottom-8 right-8 w-12 h-12 glass rounded-full flex items-center justify-center hover:bg-white/10 transition-all z-40">
+        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+    </button>
+
+    <!-- Initial Start -->
+    <div id="startScreen" class="fixed inset-0 bg-black z-[100] flex items-center justify-center">
+        <button id="initBtn" class="bg-white text-black px-12 py-4 rounded-full font-black tracking-widest hover:scale-105 transition-transform uppercase text-sm">Initialize Engine</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('mainCanvas');
+        const buffer = document.getElementById('bufferCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const bCtx = buffer.getContext('2d', { alpha: false });
+        
+        let audioCtx, analyser, dataArray;
+        let isRunning = false;
+        let lastInteraction = Date.now();
+        
+        // Engine State Variables
+        const engine = {
+            bass: 0, mid: 0, treb: 0,
+            time: 0,
+            zoom: 1.02, rot: 0.005, dx: 0, dy: 0,
+            waveType: 'line'
+        };
+
+        // UI Management
+        function resetFade() {
+            lastInteraction = Date.now();
+            document.getElementById('ui-layer').classList.remove('hidden-ui');
+            document.body.style.cursor = 'default';
+        }
+
+        window.addEventListener('mousemove', resetFade);
+        setInterval(() => {
+            if (Date.now() - lastInteraction > 3000) {
+                document.getElementById('ui-layer').classList.add('hidden-ui');
+                document.body.style.cursor = 'none';
+            }
+        }, 1000);
+
+        // Sidebar Management
+        const drawer = document.getElementById('editor-drawer');
+        document.getElementById('openEditor').onclick = () => drawer.classList.add('open');
+        document.getElementById('closeEditor').onclick = () => drawer.classList.remove('open');
+
+        // Logic Parser
+        function applyMath() {
+            const code = document.getElementById('code-frame').value;
+            engine.waveType = document.getElementById('wave-type').value;
+            // Basic sandboxed evaluator
+            try {
+                const func = new Function('bass', 'mid', 'treb', 'time', 'sin', 'cos', 'tan', `
+                    let zoom = 1.02, rot = 0.01, dx = 0, dy = 0;
+                    ${code}
+                    return { zoom, rot, dx, dy };
+                `);
+                engine.eval = func;
+                console.log("Math applied successfully.");
+            } catch (e) {
+                alert("Formula Error: " + e.message);
+            }
+        }
+
+        // File Import
+        document.getElementById('dropzone').onclick = () => document.getElementById('fileInput').click();
+        document.getElementById('fileInput').onchange = (e) => handleFile(e.target.files[0]);
+        
+        async function handleFile(file) {
+            if (!file) return;
+            const text = await file.text();
+            console.log("File loaded. Attempting to extract formulas...");
+            // Real AVS/Milk files are binary or specific text formats
+            // Here we try to find equation strings like "zoom=" or "rot="
+            const zoomMatch = text.match(/zoom=([^;]+)/);
+            const rotMatch = text.match(/rot=([^;]+)/);
+            if (zoomMatch || rotMatch) {
+                let newCode = "";
+                if (zoomMatch) newCode += `zoom = ${zoomMatch[1]};\n`;
+                if (rotMatch) newCode += `rot = ${rotMatch[1]};\n`;
+                document.getElementById('code-frame').value = newCode;
+                applyMath();
+                document.getElementById('presetDisplay').innerText = file.name.toUpperCase();
+            } else {
+                alert("Could not find standard math equations in this file. Try pasting formulas manually.");
+            }
+        }
+
+        async function init() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const source = audioCtx.createMediaStreamSource(stream);
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 512;
+            source.connect(analyser);
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+            
+            canvas.width = buffer.width = window.innerWidth;
+            canvas.height = buffer.height = window.innerHeight;
+            
+            applyMath();
+            document.getElementById('startScreen').style.display = 'none';
+            isRunning = true;
+            requestAnimationFrame(render);
+        }
+
+        function render(now) {
+            if (!isRunning) return;
+            const w = canvas.width;
+            const h = canvas.height;
+            engine.time = now / 1000;
+
+            // 1. Audio Analysis
+            analyser.getByteFrequencyData(dataArray);
+            let b = 0, m = 0, t = 0;
+            for(let i=0; i<10; i++) b += dataArray[i];
+            for(let i=10; i<30; i++) m += dataArray[i];
+            for(let i=30; i<60; i++) t += dataArray[i];
+            engine.bass = b/10/255;
+            engine.mid = m/20/255;
+            engine.treb = t/30/255;
+
+            // 2. Run Custom Math
+            if (engine.eval) {
+                const results = engine.eval(engine.bass, engine.mid, engine.treb, engine.time, Math.sin, Math.cos, Math.tan);
+                engine.zoom = results.zoom;
+                engine.rot = results.rot;
+                engine.dx = results.dx;
+                engine.dy = results.dy;
+            }
+
+            // 3. Feedback Loop
+            bCtx.drawImage(canvas, 0, 0);
+            
+            ctx.save();
+            ctx.translate(w/2 + (engine.dx * w), h/2 + (engine.dy * h));
+            ctx.scale(engine.zoom, engine.zoom);
+            ctx.rotate(engine.rot);
+            ctx.translate(-w/2, -h/2);
+            
+            ctx.globalAlpha = 0.94;
+            ctx.drawImage(buffer, 0, 0);
+            ctx.restore();
+
+            // 4. Draw Waveform
+            ctx.beginPath();
+            ctx.strokeStyle = `hsla(${(now/10)%360}, 80%, 60%, 0.8)`;
+            ctx.lineWidth = 2 + (engine.bass * 10);
+            
+            if (engine.waveType === 'line') {
+                const step = w / dataArray.length;
+                for(let i=0; i<dataArray.length; i++) {
+                    const x = i * step;
+                    const y = (h/2) + (dataArray[i]/128 - 1) * (h/3);
+                    if (i===0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                }
+            } else if (engine.waveType === 'circle') {
+                for(let i=0; i<dataArray.length; i++) {
+                    const rad = (h/4) + (dataArray[i]/255) * (h/4);
+                    const ang = (i / dataArray.length) * Math.PI * 2;
+                    const x = w/2 + Math.cos(ang) * rad;
+                    const y = h/2 + Math.sin(ang) * rad;
+                    if (i===0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                }
+                ctx.closePath();
+            }
+            ctx.stroke();
+
+            // 5. Fade black slightly
+            ctx.fillStyle = 'rgba(0,0,0,0.08)';
+            ctx.fillRect(0,0,w,h);
+
+            requestAnimationFrame(render);
+        }
+
+        document.getElementById('initBtn').onclick = init;
+        document.getElementById('applyBtn').onclick = applyMath;
+        window.onresize = () => {
+            canvas.width = buffer.width = window.innerWidth;
+            canvas.height = buffer.height = window.innerHeight;
+        };
+    </script>
+</body>
+</html>
+
