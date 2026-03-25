@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>BitBuster | Procedural Puzzle Crawler</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        
+        :root {
+            --bg-color: #0a0a0a;
+            --tile-size: 32px;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: #eee;
+            font-family: 'Press Start 2P', cursive;
+            touch-action: none;
+            overflow: hidden;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        #game-container {
+            position: relative;
+            border: 4px solid #333;
+            background: #000;
+            box-shadow: 0 0 40px rgba(0,0,0,0.8);
+        }
+
+        canvas {
+            image-rendering: pixelated;
+            display: block;
+        }
+
+        .hud {
+            font-size: 10px;
+            padding: 12px;
+            background: #111;
+            border: 2px solid #333;
+            width: 100%;
+            max-width: 384px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 8px;
+            box-sizing: border-box;
+        }
+
+        .hud-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-bar {
+            background: #000;
+            border: 1px inset #333;
+            padding: 6px;
+            font-size: 8px;
+            color: #0f0;
+            height: 14px;
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+            text-transform: uppercase;
+        }
+
+        .inventory-slot {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #222;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 8px;
+            color: #444;
+        }
+
+        .active { border-color: #0f0; color: #0f0; background: #020; box-shadow: inset 0 0 5px #0f0; }
+        .has-key { border-color: #f00; color: #f00; background: #200; }
+
+        .btn-restart {
+            background: #444;
+            color: #fff;
+            padding: 6px 10px;
+            border: none;
+            cursor: pointer;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 8px;
+            transition: background 0.2s;
+        }
+        .btn-restart:hover { background: #666; }
+        .btn-restart:active { background: #222; }
+
+        .controls-hint {
+            margin-top: 12px;
+            font-size: 8px;
+            color: #555;
+            text-transform: uppercase;
+            text-align: center;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="hud">
+        <div class="hud-top">
+            <div>CHIPS: <span id="chips-count">0</span></div>
+            <div id="inventory-display" class="flex"></div>
+            <button class="btn-restart" id="btn-restart">RESTART (R)</button>
+        </div>
+        <div class="status-bar" id="status-bar">READY PLAYER 1</div>
+    </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <div class="controls-hint">
+        ARROWS / SWIPE TO MOVE<br>
+        'R' TO RESTART IF STUCK
+    </div>
+
+<script>
+/**
+ * BITBUSTER - Advanced Puzzle Engine
+ */
+
+const TILE_SIZE = 32;
+const GRID_SIZE = 32; 
+const VIEWPORT_SIZE = 12; 
+
+const TILES = {
+    FLOOR: 0, WALL: 1, CHIP: 2, SOCKET: 3, EXIT: 4,
+    WATER: 5, FIRE: 6, ICE: 7, 
+    FORCE_N: 8, FORCE_S: 9, FORCE_E: 10, FORCE_W: 11,
+    KEY_RED: 12, DOOR_RED: 13,
+    BOOTS_WATER: 14, BOOTS_FIRE: 15, THIEF: 16, DIRT: 17
+};
+
+const COLORS = {
+    [TILES.FLOOR]: '#222',
+    [TILES.WALL]: '#444',
+    [TILES.CHIP]: '#0ff',
+    [TILES.SOCKET]: '#f0f',
+    [TILES.EXIT]: '#0f0',
+    [TILES.WATER]: '#00f',
+    [TILES.FIRE]: '#f60',
+    [TILES.ICE]: '#9df',
+    [TILES.FORCE_N]: '#333',
+    [TILES.FORCE_S]: '#333',
+    [TILES.FORCE_E]: '#333',
+    [TILES.FORCE_W]: '#333',
+    [TILES.KEY_RED]: '#f00',
+    [TILES.DOOR_RED]: '#700',
+    [TILES.BOOTS_WATER]: '#55f',
+    [TILES.BOOTS_FIRE]: '#f55',
+    [TILES.THIEF]: '#000',
+    [TILES.DIRT]: '#543'
+};
+
+class LevelGenerator {
+    constructor(size) {
+        this.size = size;
+    }
+
+    generate(difficulty = 1) {
+        let grid = Array(this.size).fill().map(() => Array(this.size).fill(TILES.WALL));
+        const rooms = [];
+        const roomSize = 6;
+        for(let y = 1; y < this.size - roomSize; y += roomSize + 1) {
+            for(let x = 1; x < this.size - roomSize; x += roomSize + 1) {
+                rooms.push({x, y, w: roomSize, h: roomSize});
+            }
+        }
+
+        rooms.sort(() => Math.random() - 0.5);
+        const startRoom = rooms[0];
+        const exitRoom = rooms[rooms.length - 1];
+
+        rooms.forEach((room, i) => {
+            for(let ry = room.y; ry < room.y + room.h; ry++) {
+                for(let rx = room.x; rx < room.x + room.w; rx++) {
+                    grid[ry][rx] = TILES.FLOOR;
+                }
+            }
+            if (i < rooms.length - 1) {
+                let next = rooms[i+1];
+                this.carveCorridor(grid, room.x + 2, room.y + 2, next.x + 2, next.y + 2);
+            }
+        });
+
+        let chipCount = 0;
+        rooms.forEach((room, i) => {
+            if (room === startRoom) return;
+
+            const roll = Math.random();
+            if (room === exitRoom) {
+                grid[room.y + 2][room.x + 2] = TILES.EXIT;
+                grid[room.y + 1][room.x + 2] = TILES.SOCKET;
+                grid[room.y + 3][room.x + 2] = TILES.SOCKET;
+                grid[room.y + 2][room.x + 1] = TILES.SOCKET;
+                grid[room.y + 2][room.x + 3] = TILES.SOCKET;
+            } else if (roll < 0.2) {
+                this.fillHazardRoom(grid, room, TILES.WATER, TILES.BOOTS_WATER);
+            } else if (roll < 0.4) {
+                this.fillHazardRoom(grid, room, TILES.FIRE, TILES.BOOTS_FIRE);
+            } else if (roll < 0.6) {
+                this.fillIceRoom(grid, room);
+            } else if (roll < 0.8) {
+                this.fillForceRoom(grid, room);
+            } else {
+                this.fillKeyRoom(grid, room);
+            }
+
+            const cx = room.x + Math.floor(Math.random() * room.w);
+            const cy = room.y + Math.floor(Math.random() * room.h);
+            if (grid[cy][cx] === TILES.FLOOR) {
+                grid[cy][cx] = TILES.CHIP;
+                chipCount++;
+            }
+        });
+
+        return { grid, chipCount, start: [startRoom.x + 1, startRoom.y + 1] };
+    }
+
+    carveCorridor(grid, x1, y1, x2, y2) {
+        let x = x1, y = y1;
+        while (x !== x2) { grid[y][x] = TILES.FLOOR; x += (x2 > x ? 1 : -1); }
+        while (y !== y2) { grid[y][x] = TILES.FLOOR; y += (y2 > y ? 1 : -1); }
+    }
+
+    fillHazardRoom(grid, room, hazard, boot) {
+        for(let ry = room.y + 1; ry < room.y + room.h - 1; ry++) {
+            for(let rx = room.x + 1; rx < room.x + room.w - 1; rx++) {
+                grid[ry][rx] = hazard;
+            }
+        }
+        grid[room.y][room.x] = boot;
+    }
+
+    fillIceRoom(grid, room) {
+        for(let ry = room.y; ry < room.y + room.h; ry++) {
+            for(let rx = room.x; rx < room.x + room.w; rx++) {
+                grid[ry][rx] = TILES.ICE;
+            }
+        }
+        grid[room.y + 2][room.x + 2] = TILES.FLOOR;
+    }
+
+    fillForceRoom(grid, room) {
+        const dirs = [TILES.FORCE_N, TILES.FORCE_S, TILES.FORCE_E, TILES.FORCE_W];
+        const chosen = dirs[Math.floor(Math.random() * dirs.length)];
+        for(let ry = room.y; ry < room.y + room.h; ry++) {
+            for(let rx = room.x; rx < room.x + room.w; rx++) {
+                grid[ry][rx] = chosen;
+            }
+        }
+    }
+
+    fillKeyRoom(grid, room) {
+        grid[room.y + 1][room.x + 1] = TILES.DOOR_RED;
+        grid[room.y + room.h - 2][room.x + room.w - 2] = TILES.KEY_RED;
+    }
+}
+
+class Game {
+    constructor() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.statusEl = document.getElementById('status-bar');
+        this.levelNum = 1;
+        this.isTransitioning = false;
+        
+        // Cache current level data for restarts
+        this.currentLevelData = null;
+        
+        this.init();
+        this.bindEvents();
+        this.gameLoop();
+    }
+
+    log(msg, color = "#0f0") {
+        this.statusEl.innerText = msg;
+        this.statusEl.style.color = color;
+    }
+
+    init(newLevel = true) {
+        if (newLevel || !this.currentLevelData) {
+            const gen = new LevelGenerator(GRID_SIZE);
+            this.currentLevelData = gen.generate(this.levelNum);
+            // Deep copy grid so restart works
+            this.currentGrid = this.currentLevelData.grid.map(row => [...row]);
+        } else {
+            // Restore from cached data on restart
+            this.currentGrid = this.currentLevelData.grid.map(row => [...row]);
+        }
+        
+        const data = this.currentLevelData;
+        this.player = {
+            x: data.start[0],
+            y: data.start[1],
+            inventory: { redKeys: 0, flippers: false, fireBoots: false },
+            chips: 0,
+            requiredChips: data.chipCount,
+            lastDx: 0,
+            lastDy: 0
+        };
+
+        this.canvas.width = VIEWPORT_SIZE * TILE_SIZE;
+        this.canvas.height = VIEWPORT_SIZE * TILE_SIZE;
+        this.isTransitioning = false;
+        this.updateHUD();
+        if (newLevel) this.log(`LEVEL ${this.levelNum} - GOOD LUCK`);
+        else this.log("LEVEL RESTARTED");
+    }
+
+    updateHUD() {
+        const remaining = Math.max(0, this.player.requiredChips - this.player.chips);
+        document.getElementById('chips-count').innerText = remaining;
+        
+        const inv = document.getElementById('inventory-display');
+        inv.innerHTML = `
+            <div class="inventory-slot ${this.player.inventory.flippers ? 'active' : ''}">W</div>
+            <div class="inventory-slot ${this.player.inventory.fireBoots ? 'active' : ''}">F</div>
+            <div class="inventory-slot ${this.player.inventory.redKeys > 0 ? 'has-key' : ''}">K</div>
+        `;
+    }
+
+    move(dx, dy) {
+        if (this.isTransitioning) return;
+
+        let nx = this.player.x + dx;
+        let ny = this.player.y + dy;
+
+        if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) return;
+
+        const tile = this.currentGrid[ny][nx];
+
+        switch(tile) {
+            case TILES.WALL: return false;
+            case TILES.DOOR_RED:
+                if (this.player.inventory.redKeys > 0) {
+                    this.player.inventory.redKeys--;
+                    this.currentGrid[ny][nx] = TILES.FLOOR;
+                    this.log("USED RED KEY");
+                } else {
+                    this.log("NEEDS RED KEY", "red");
+                    return false;
+                }
+                break;
+            case TILES.SOCKET:
+                if (this.player.chips >= this.player.requiredChips) {
+                    this.currentGrid[ny][nx] = TILES.FLOOR;
+                    this.log("SOCKET OPENED!");
+                } else {
+                    this.log(`${this.player.requiredChips - this.player.chips} CHIPS REMAINING`, "orange");
+                    return false;
+                }
+                break;
+            case TILES.EXIT:
+                this.log("LEVEL COMPLETE!");
+                this.nextLevel();
+                return true;
+            case TILES.CHIP:
+                this.player.chips++;
+                this.currentGrid[ny][nx] = TILES.FLOOR;
+                this.log("COLLECTED CHIP");
+                break;
+            case TILES.KEY_RED:
+                this.player.inventory.redKeys++;
+                this.currentGrid[ny][nx] = TILES.FLOOR;
+                this.log("FOUND RED KEY!");
+                break;
+            case TILES.BOOTS_WATER:
+                this.player.inventory.flippers = true;
+                this.currentGrid[ny][nx] = TILES.FLOOR;
+                this.log("FOUND WATER BOOTS");
+                break;
+            case TILES.BOOTS_FIRE:
+                this.player.inventory.fireBoots = true;
+                this.currentGrid[ny][nx] = TILES.FLOOR;
+                this.log("FOUND FIRE BOOTS");
+                break;
+            case TILES.THIEF:
+                this.player.inventory.flippers = false;
+                this.player.inventory.fireBoots = false;
+                this.log("THIEF STOLE YOUR BOOTS!", "red");
+                break;
+        }
+
+        this.player.x = nx;
+        this.player.y = ny;
+        this.player.lastDx = dx;
+        this.player.lastDy = dy;
+        
+        this.updateHUD();
+        this.checkEnvironment();
+        return true;
+    }
+
+    checkEnvironment() {
+        const tile = this.currentGrid[this.player.y][this.player.x];
+        
+        if (tile === TILES.WATER && !this.player.inventory.flippers) return this.die("DROWNED IN WATER");
+        if (tile === TILES.FIRE && !this.player.inventory.fireBoots) return this.die("BURNED BY FIRE");
+
+        if (tile === TILES.ICE) {
+            this.log("SLIDING ON ICE...");
+            setTimeout(() => this.move(this.player.lastDx, this.player.lastDy), 80);
+        } else if (tile >= TILES.FORCE_N && tile <= TILES.FORCE_W) {
+            const fdirs = [[0,-1], [0,1], [1,0], [-1,0]];
+            const [fdx, fdy] = fdirs[tile-8];
+            this.log("FORCE FLOOR PUSHING...");
+            setTimeout(() => this.move(fdx, fdy), 120);
+        }
+    }
+
+    die(reason) {
+        if (this.isTransitioning) return;
+        this.isTransitioning = true;
+        this.log(reason, "red");
+        setTimeout(() => this.init(false), 800);
+    }
+
+    nextLevel() {
+        this.isTransitioning = true;
+        this.levelNum++;
+        setTimeout(() => this.init(true), 1000);
+    }
+
+    bindEvents() {
+        window.addEventListener('keydown', e => {
+            if (this.isTransitioning) return;
+            if (e.key.toLowerCase() === 'r') this.init(false);
+            if (e.key === 'ArrowUp') this.move(0, -1);
+            if (e.key === 'ArrowDown') this.move(0, 1);
+            if (e.key === 'ArrowLeft') this.move(-1, 0);
+            if (e.key === 'ArrowRight') this.move(1, 0);
+        });
+
+        document.getElementById('btn-restart').onclick = () => this.init(false);
+
+        let tsX, tsY;
+        this.canvas.addEventListener('touchstart', e => {
+            tsX = e.touches[0].clientX;
+            tsY = e.touches[0].clientY;
+        }, {passive: false});
+
+        this.canvas.addEventListener('touchend', e => {
+            if (this.isTransitioning) return;
+            let dx = e.changedTouches[0].clientX - tsX;
+            let dy = e.changedTouches[0].clientY - tsY;
+            if (Math.abs(dx) > Math.abs(dy)) {
+                if (Math.abs(dx) > 20) this.move(dx > 0 ? 1 : -1, 0);
+            } else {
+                if (Math.abs(dy) > 20) this.move(0, dy > 0 ? 1 : -1);
+            }
+        }, {passive: false});
+    }
+
+    draw() {
+        this.ctx.fillStyle = '#000';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        const offsetX = Math.floor(VIEWPORT_SIZE / 2) - this.player.x;
+        const offsetY = Math.floor(VIEWPORT_SIZE / 2) - this.player.y;
+
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                const screenX = (x + offsetX) * TILE_SIZE;
+                const screenY = (y + offsetY) * TILE_SIZE;
+
+                if (screenX < -TILE_SIZE || screenX > this.canvas.width || screenY < -TILE_SIZE || screenY > this.canvas.height) continue;
+
+                const tile = this.currentGrid[y][x];
+                this.ctx.fillStyle = COLORS[tile];
+                this.ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                
+                this.ctx.globalAlpha = 0.1;
+                this.ctx.strokeStyle = '#fff';
+                this.ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+                this.ctx.globalAlpha = 1.0;
+
+                if(tile === TILES.CHIP) {
+                    this.ctx.fillStyle = '#fff';
+                    this.ctx.fillRect(screenX + 10, screenY + 10, 12, 12);
+                    this.ctx.fillStyle = '#0ff';
+                    this.ctx.fillRect(screenX + 12, screenY + 12, 8, 8);
+                } else if (tile === TILES.DOOR_RED) {
+                    this.ctx.fillStyle = '#f00';
+                    this.ctx.fillRect(screenX + 4, screenY + 4, 24, 24);
+                    this.ctx.strokeStyle = '#fff';
+                    this.ctx.strokeRect(screenX + 8, screenY + 8, 16, 16);
+                } else if (tile >= TILES.FORCE_N && tile <= TILES.FORCE_W) {
+                    this.ctx.fillStyle = '#555';
+                    this.ctx.font = 'bold 16px Arial';
+                    const arrows = ['↑', '↓', '→', '←'];
+                    this.ctx.fillText(arrows[tile-8], screenX + 8, screenY + 22);
+                } else if (tile === TILES.KEY_RED) {
+                    this.ctx.fillStyle = '#f00';
+                    this.ctx.fillRect(screenX + 12, screenY + 8, 8, 16);
+                }
+            }
+        }
+
+        if (!this.isTransitioning) {
+            const px = Math.floor(VIEWPORT_SIZE / 2) * TILE_SIZE;
+            const py = Math.floor(VIEWPORT_SIZE / 2) * TILE_SIZE;
+            this.ctx.fillStyle = '#ff0';
+            this.ctx.beginPath();
+            this.ctx.arc(px + 16, py + 16, 12, 0, Math.PI * 2);
+            this.ctx.fill();
+            this.ctx.fillStyle = '#000';
+            this.ctx.fillRect(px + 8, py + 10, 6, 6);
+            this.ctx.fillRect(px + 18, py + 10, 6, 6);
+        }
+    }
+
+    gameLoop() {
+        this.draw();
+        requestAnimationFrame(() => this.gameLoop());
+    }
+}
+
+window.onload = () => new Game();
+</script>
+</body>
+</html>
+
