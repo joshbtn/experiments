@@ -1,0 +1,381 @@
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PeerDrop - P2P File Transfer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- QR Code Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        .glass {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        #qrcode img {
+            margin: 0 auto;
+        }
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .anim-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen font-sans">
+
+    <div class="max-w-xl mx-auto px-4 py-8">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <div class="inline-flex items-center justify-center p-3 bg-blue-600 rounded-2xl shadow-lg mb-4 text-white">
+                <i data-lucide="share-2" class="w-8 h-8"></i>
+            </div>
+            <h1 class="text-3xl font-bold tracking-tight">PeerDrop</h1>
+            <p class="text-slate-500 mt-2">Secure, peer-to-peer file sharing via WebRTC</p>
+        </header>
+
+        <!-- Connection Status -->
+        <div id="status-card" class="glass rounded-3xl p-6 mb-6 shadow-sm border border-slate-200">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div id="status-dot" class="w-3 h-3 rounded-full bg-yellow-400"></div>
+                    <span id="status-text" class="font-medium">Initializing...</span>
+                </div>
+                <button id="reset-btn" class="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-1 rounded-full text-slate-600 transition-colors">
+                    Reset Session
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Workspace -->
+        <main id="main-content">
+            
+            <!-- Step 1: Connect -->
+            <section id="setup-section" class="space-y-6">
+                <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <i data-lucide="link" class="w-5 h-5 text-blue-500"></i>
+                        Establish Connection
+                    </h2>
+                    
+                    <div class="grid grid-cols-2 gap-3 mb-6">
+                        <button id="create-offer-btn" class="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed border-slate-200 hover:border-blue-400 hover:bg-blue-50 transition-all group">
+                            <i data-lucide="plus-circle" class="w-8 h-8 mb-2 text-slate-400 group-hover:text-blue-500"></i>
+                            <span class="text-sm font-medium">Create Invite</span>
+                        </button>
+                        <button id="join-btn" class="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed border-slate-200 hover:border-green-400 hover:bg-green-50 transition-all group">
+                            <i data-lucide="log-in" class="w-8 h-8 mb-2 text-slate-400 group-hover:text-green-500"></i>
+                            <span class="text-sm font-medium">Join Friend</span>
+                        </button>
+                    </div>
+
+                    <div id="signaling-area" class="hidden space-y-4">
+                        <p class="text-xs text-slate-500 uppercase font-bold tracking-wider">Signaling Data</p>
+                        <textarea id="sdp-input" class="w-full h-32 p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono" placeholder="Paste data here..."></textarea>
+                        
+                        <div id="qr-container" class="hidden flex flex-col items-center py-4 bg-white rounded-xl border border-slate-100 shadow-inner">
+                            <div id="qrcode"></div>
+                            <p class="mt-4 text-xs text-slate-400">Scan this on the other device</p>
+                        </div>
+
+                        <button id="process-sdp-btn" class="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-md shadow-blue-200">
+                            Process Connection
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Step 2: Transfer -->
+            <section id="transfer-section" class="hidden space-y-6">
+                <!-- Send File -->
+                <div class="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <i data-lucide="upload-cloud" class="w-5 h-5 text-blue-500"></i>
+                        Send File
+                    </h2>
+                    <label for="file-input" class="relative flex flex-col items-center justify-center p-8 border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer hover:bg-slate-50 transition-all">
+                        <i data-lucide="file-plus" class="w-12 h-12 text-slate-300 mb-2"></i>
+                        <span class="text-sm text-slate-600">Click to choose or drag & drop</span>
+                        <input type="file" id="file-input" class="hidden">
+                    </label>
+
+                    <div id="send-progress-container" class="hidden mt-6 space-y-2">
+                        <div class="flex justify-between text-xs font-medium">
+                            <span id="send-filename" class="truncate max-w-[200px]">file.zip</span>
+                            <span id="send-percentage">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                            <div id="send-progress-bar" class="progress-bar bg-blue-500 h-full w-0"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Receive File -->
+                <div id="incoming-container" class="hidden bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <i data-lucide="download-cloud" class="w-5 h-5 text-green-500"></i>
+                        Incoming File
+                    </h2>
+                    <div class="flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
+                        <div class="flex items-center gap-3">
+                            <i data-lucide="file" class="w-8 h-8 text-slate-400"></i>
+                            <div>
+                                <p id="recv-filename" class="text-sm font-medium truncate max-w-[150px]">Waiting...</p>
+                                <p id="recv-status" class="text-xs text-slate-500 italic">Connected</p>
+                            </div>
+                        </div>
+                        <div id="recv-percentage" class="text-sm font-bold text-blue-600">0%</div>
+                    </div>
+                    <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden mt-4">
+                        <div id="recv-progress-bar" class="progress-bar bg-green-500 h-full w-0"></div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="mt-12 text-center text-slate-400 text-xs">
+            Direct browser-to-browser. HTTPS Required.
+        </footer>
+    </div>
+
+    <script>
+        // --- CONFIG & STATE ---
+        const CHUNK_SIZE = 16384; // 16KB
+        let pc; // RTCPeerConnection
+        let dataChannel;
+        let receiveBuffer = [];
+        let receivedSize = 0;
+        let incomingFileInfo = null;
+
+        // UI Elements
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const setupSection = document.getElementById('setup-section');
+        const transferSection = document.getElementById('transfer-section');
+        const sdpInput = document.getElementById('sdp-input');
+        const signalingArea = document.getElementById('signaling-area');
+        const qrContainer = document.getElementById('qr-container');
+        const qrcodeDiv = document.getElementById('qrcode');
+        const fileInput = document.getElementById('file-input');
+
+        // --- UTILS ---
+        const updateStatus = (status, text) => {
+            const colors = {
+                disconnected: 'bg-red-500',
+                connecting: 'bg-yellow-400',
+                connected: 'bg-green-500 anim-pulse'
+            };
+            statusDot.className = `w-3 h-3 rounded-full ${colors[status] || 'bg-slate-300'}`;
+            statusText.innerText = text;
+        };
+
+        const createPeerConnection = () => {
+            // Using public Google STUN server for NAT traversal
+            const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+            pc = new RTCPeerConnection(config);
+
+            pc.onicecandidate = (event) => {
+                if (!event.candidate) {
+                    // ICE Gathering finished, show the full SDP
+                    const sdp = JSON.stringify(pc.localDescription);
+                    sdpInput.value = sdp;
+                    generateQRCode(sdp);
+                }
+            };
+
+            pc.ondatachannel = (event) => {
+                dataChannel = event.channel;
+                setupDataChannelListeners();
+            };
+
+            pc.onconnectionstatechange = () => {
+                if (pc.connectionState === 'connected') {
+                    updateStatus('connected', 'Connected P2P');
+                    setupSection.classList.add('hidden');
+                    transferSection.classList.remove('hidden');
+                } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+                    updateStatus('disconnected', 'Connection Lost');
+                }
+            };
+        };
+
+        const setupDataChannelListeners = () => {
+            dataChannel.binaryType = 'arraybuffer';
+            dataChannel.onopen = () => {
+                updateStatus('connected', 'Connected & Ready');
+                setupSection.classList.add('hidden');
+                transferSection.classList.remove('hidden');
+            };
+
+            dataChannel.onmessage = (event) => {
+                if (typeof event.data === 'string') {
+                    // File Metadata
+                    const meta = JSON.parse(event.data);
+                    incomingFileInfo = meta;
+                    receiveBuffer = [];
+                    receivedSize = 0;
+                    document.getElementById('incoming-container').classList.remove('hidden');
+                    document.getElementById('recv-filename').innerText = meta.name;
+                    return;
+                }
+
+                // File Chunk
+                receiveBuffer.push(event.data);
+                receivedSize += event.data.byteLength;
+
+                const progress = Math.round((receivedSize / incomingFileInfo.size) * 100);
+                document.getElementById('recv-progress-bar').style.width = progress + '%';
+                document.getElementById('recv-percentage').innerText = progress + '%';
+
+                if (receivedSize === incomingFileInfo.size) {
+                    const receivedBlob = new Blob(receiveBuffer);
+                    downloadBlob(receivedBlob, incomingFileInfo.name);
+                    receiveBuffer = [];
+                    receivedSize = 0;
+                    document.getElementById('recv-status').innerText = 'Download Complete!';
+                    lucide.createIcons();
+                }
+            };
+        };
+
+        const generateQRCode = (data) => {
+            qrcodeDiv.innerHTML = "";
+            new QRCode(qrcodeDiv, {
+                text: data,
+                width: 256,
+                height: 256,
+                correctLevel: QRCode.CorrectLevel.L
+            });
+            qrContainer.classList.remove('hidden');
+        };
+
+        const downloadBlob = (blob, name) => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = name;
+            a.click();
+            URL.revokeObjectURL(url);
+        };
+
+        // --- ACTIONS ---
+
+        // 1. Initiator: Create Offer
+        document.getElementById('create-offer-btn').onclick = async () => {
+            createPeerConnection();
+            dataChannel = pc.createDataChannel('fileTransfer');
+            setupDataChannelListeners();
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            
+            signalingArea.classList.remove('hidden');
+            updateStatus('connecting', 'Generating Invite...');
+        };
+
+        // 2. Joiner: Prepare for Offer
+        document.getElementById('join-btn').onclick = () => {
+            createPeerConnection();
+            signalingArea.classList.remove('hidden');
+            sdpInput.placeholder = "Paste the Invite Code from your friend here...";
+            updateStatus('connecting', 'Waiting for Invite');
+        };
+
+        // 3. Process the SDP (Handshake)
+        document.getElementById('process-sdp-btn').onclick = async () => {
+            const raw = sdpInput.value.trim();
+            if (!raw) return;
+
+            const description = JSON.parse(raw);
+            
+            if (description.type === 'offer') {
+                // We are the Joiner, receiving an offer
+                await pc.setRemoteDescription(description);
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                
+                // Show our answer to provide back to initiator
+                sdpInput.value = JSON.stringify(pc.localDescription);
+                generateQRCode(sdpInput.value);
+                updateStatus('connecting', 'Created Answer. Send this back.');
+            } else if (description.type === 'answer') {
+                // We are the Initiator, receiving the answer
+                await pc.setRemoteDescription(description);
+                updateStatus('connecting', 'Finalizing connection...');
+            }
+        };
+
+        // 4. File Sending Logic
+        fileInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file || !dataChannel || dataChannel.readyState !== 'open') return;
+
+            const sendContainer = document.getElementById('send-progress-container');
+            const sendBar = document.getElementById('send-progress-bar');
+            const sendLabel = document.getElementById('send-filename');
+            const sendPerc = document.getElementById('send-percentage');
+
+            sendContainer.classList.remove('hidden');
+            sendLabel.innerText = file.name;
+
+            // Send metadata first
+            dataChannel.send(JSON.stringify({
+                name: file.name,
+                size: file.size,
+                type: file.type
+            }));
+
+            const reader = new FileReader();
+            let offset = 0;
+
+            const readSlice = (o) => {
+                const slice = file.slice(offset, o + CHUNK_SIZE);
+                reader.readAsArrayBuffer(slice);
+            };
+
+            reader.onload = (event) => {
+                dataChannel.send(event.target.result);
+                offset += event.target.result.byteLength;
+
+                const progress = Math.round((offset / file.size) * 100);
+                sendBar.style.width = progress + '%';
+                sendPerc.innerText = progress + '%';
+
+                if (offset < file.size) {
+                    // Check buffer to avoid overflow
+                    if (dataChannel.bufferedAmount > 16000000) { // 16MB threshold
+                        setTimeout(() => readSlice(offset), 100);
+                    } else {
+                        readSlice(offset);
+                    }
+                } else {
+                    sendLabel.innerText = "Sent: " + file.name;
+                }
+            };
+
+            readSlice(0);
+        };
+
+        // Reset
+        document.getElementById('reset-btn').onclick = () => {
+            location.reload();
+        };
+
+        // Initialize Icons
+        window.onload = () => {
+            lucide.createIcons();
+            updateStatus('disconnected', 'Not Connected');
+        };
+    </script>
+</body>
+</html>
+
+```
