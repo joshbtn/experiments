@@ -16,9 +16,21 @@
 
     <div id="app-container" class="w-full max-w-2xl bg-white shadow-xl rounded-xl p-6 sm:p-8">
         <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">
-            Save Text as File
+            Text File Editor
         </h1>
-        
+
+        <!-- Open File -->
+        <div class="mb-4 flex items-center gap-3">
+            <button id="open-button"
+                class="px-5 py-2 bg-gray-700 text-white font-semibold rounded-full shadow hover:bg-gray-800 focus:outline-none focus:ring-4 focus:ring-gray-500 focus:ring-opacity-50 transition transform duration-150 ease-in-out active:scale-95"
+                aria-label="Open a file as text"
+            >
+                Open File…
+            </button>
+            <span id="open-filename" class="text-sm text-gray-500 truncate"></span>
+        </div>
+        <input type="file" id="file-input" class="hidden" aria-hidden="true">
+
         <!-- Main Text Area -->
         <label for="content-input" class="block text-sm font-medium text-gray-700 mb-2">File Content (Multiline)</label>
         <textarea id="content-input" 
@@ -59,6 +71,86 @@
         const filenameInput = document.getElementById('filename-input');
         const saveButton = document.getElementById('save-button');
         const messageBox = document.getElementById('message-box');
+        const openButton = document.getElementById('open-button');
+        const fileInput = document.getElementById('file-input');
+        const openFilename = document.getElementById('open-filename');
+
+        const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB
+        const BINARY_CHECK_BYTES = 512;
+
+        // Common binary magic-byte signatures (offset 0 unless noted)
+        const BINARY_SIGNATURES = [
+            [0x89, 0x50, 0x4E, 0x47], // PNG
+            [0xFF, 0xD8, 0xFF],        // JPEG
+            [0x47, 0x49, 0x46],        // GIF
+            [0x25, 0x50, 0x44, 0x46], // PDF
+            [0x50, 0x4B, 0x03, 0x04], // ZIP / DOCX / XLSX etc.
+            [0x7F, 0x45, 0x4C, 0x46], // ELF
+            [0x4D, 0x5A],              // PE / EXE / DLL
+            [0xCA, 0xFE, 0xBA, 0xBE], // Java class / Mach-O fat
+            [0x1F, 0x8B],              // GZIP
+            [0x42, 0x5A, 0x68],       // BZIP2
+            [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C], // 7-ZIP
+        ];
+
+        function looksLikeBinary(bytes) {
+            // Check known magic bytes
+            for (const sig of BINARY_SIGNATURES) {
+                if (sig.every((b, i) => bytes[i] === b)) return true;
+            }
+            // Heuristic: null bytes are a strong indicator of binary content
+            for (let i = 0; i < bytes.length; i++) {
+                if (bytes[i] === 0x00) return true;
+            }
+            return false;
+        }
+
+        openButton.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            if (!file) return;
+            // Reset so the same file can be re-opened after a warning dismissal
+            fileInput.value = '';
+
+            const warnings = [];
+
+            if (file.size > MAX_FILE_SIZE) {
+                warnings.push('This file is ' + (file.size / (1024 * 1024)).toFixed(1) + ' MB, which exceeds the 100 MB warning threshold. Loading large files may slow or freeze your browser.');
+            }
+
+            // Read first BINARY_CHECK_BYTES bytes for binary detection, then read full file
+            const headReader = new FileReader();
+            headReader.onload = function(e) {
+                const head = new Uint8Array(e.target.result);
+                if (looksLikeBinary(head)) {
+                    warnings.push('This file appears to be a binary file. Displaying it as text may produce garbled output.');
+                }
+
+                const confirmMsg = warnings.length
+                    ? warnings.join('\n\n') + '\n\nOpen anyway?'
+                    : null;
+
+                if (confirmMsg && !window.confirm(confirmMsg)) return;
+
+                // Read the full file as text
+                const textReader = new FileReader();
+                textReader.onload = function(ev) {
+                    contentInput.value = ev.target.result;
+                    filenameInput.value = file.name;
+                    openFilename.textContent = file.name;
+                    showMessage('Opened "' + file.name + '"', 'success');
+                };
+                textReader.onerror = function() {
+                    showMessage('Failed to read the file.', 'error');
+                };
+                textReader.readAsText(file);
+            };
+            headReader.onerror = function() {
+                showMessage('Failed to read the file.', 'error');
+            };
+            headReader.readAsArrayBuffer(file.slice(0, BINARY_CHECK_BYTES));
+        });
 
         // Function to show a temporary message
         function showMessage(text, type = 'success') {
