@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Dynamic Minesweeper</title>
+    <!-- Dynamic Manifest Link -->
+    <link id="manifest-link" rel="manifest" href="">
+    <style>
+        /* DYNAMIC RULE-BASED THEMES (CSS Variables) */
+        :root {
+            --bg-body: #1e1e2e;
+            --bg-panel: #2a2a3e;
+            --bg-cell-hidden: #45455e;
+            --bg-cell-revealed: #2a2a3e;
+            --cell-border: #1e1e2e;
+            --cell-hover: #565675;
+            --text-main: #cdd6f4;
+            --text-accent: #89b4fa;
+            --accent-color: #89b4fa;
+            --border-radius-cell: 4px;
+            --border-radius-panel: 12px;
+            --shadow-panel: 0 10px 30px rgba(0,0,0,0.5);
+            --cell-inset: inset 2px 2px 0px rgba(255,255,255,0.1), inset -2px -2px 0px rgba(0,0,0,0.3);
+            --cell-revealed-shadow: inset 1px 1px 3px rgba(0,0,0,0.4);
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        [data-theme="light"] {
+            --bg-body: #f0f2f5;
+            --bg-panel: #ffffff;
+            --bg-cell-hidden: #e4e6eb;
+            --bg-cell-revealed: #f0f2f5;
+            --cell-border: #ccd0d5;
+            --cell-hover: #d8dadf;
+            --text-main: #1c1e21;
+            --text-accent: #1877f2;
+            --accent-color: #1877f2;
+            --shadow-panel: 0 4px 12px rgba(0,0,0,0.1);
+            --cell-inset: inset 2px 2px 0px rgba(255,255,255,0.8), inset -2px -2px 0px rgba(0,0,0,0.1);
+            --cell-revealed-shadow: inset 1px 1px 2px rgba(0,0,0,0.1);
+        }
+
+        [data-theme="cyberpunk"] {
+            --bg-body: #0d0221;
+            --bg-panel: #170438;
+            --bg-cell-hidden: #00ffcc;
+            --bg-cell-revealed: #170438;
+            --cell-border: #ff007f;
+            --cell-hover: #55ffdd;
+            --text-main: #00ffcc;
+            --text-accent: #ff007f;
+            --accent-color: #ff007f;
+            --border-radius-cell: 0px;
+            --border-radius-panel: 0px;
+            --shadow-panel: 0 0 20px #ff007f33;
+            --cell-inset: 0 0 5px #00ffcc inset;
+            --cell-revealed-shadow: none;
+        }
+
+        /* GLOBAL STYLES */
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        body { 
+            margin: 0; padding: 20px; 
+            background: var(--bg-body); color: var(--text-main);
+            min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            overflow-x: hidden; transition: background 0.3s;
+        }
+
+        .container {
+            background: var(--bg-panel);
+            padding: 24px;
+            border-radius: var(--border-radius-panel);
+            box-shadow: var(--shadow-panel);
+            max-width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            transition: all 0.3s;
+        }
+
+        /* HEADER & CONTROLS */
+        .header {
+            display: flex; justify-content: space-between; align-items: center;
+            flex-wrap: wrap; gap: 10px;
+        }
+        h1 { margin: 0; font-size: 1.5rem; color: var(--text-accent); }
+        
+        .controls {
+            display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: center;
+        }
+        
+        select, button {
+            background: var(--bg-body); color: var(--text-main);
+            border: 1px solid var(--cell-border);
+            padding: 8px 12px; border-radius: var(--border-radius-cell);
+            font-size: 0.9rem; cursor: pointer; transition: all 0.2s;
+            outline: none;
+        }
+        select:hover, button:hover { background: var(--cell-hover); }
+        button.primary { background: var(--accent-color); color: #fff; border: none; font-weight: bold; }
+        button.primary:hover { filter: brightness(1.1); background: var(--accent-color); }
+
+        /* HUD (Score, Time, Mines) */
+        .hud {
+            display: flex; justify-content: space-between;
+            background: var(--bg-body); padding: 12px 20px;
+            border-radius: var(--border-radius-cell);
+            font-family: monospace; font-size: 1.5rem; font-weight: bold;
+            box-shadow: var(--cell-revealed-shadow);
+        }
+        .hud-item { display: flex; align-items: center; gap: 8px; color: var(--text-accent); }
+        .hud-item svg { width: 20px; height: 20px; fill: currentColor; }
+
+        /* GAME BOARD */
+        .board-container {
+            overflow: auto; max-width: 100%; max-height: 60vh;
+            border: 2px solid var(--cell-border);
+            border-radius: var(--border-radius-cell);
+            touch-action: none; /* Crucial for custom touch handling */
+        }
+        .board {
+            display: grid;
+            background: var(--cell-border);
+            gap: 1px; /* Borders between cells */
+            margin: auto;
+        }
+
+        .cell {
+            width: 32px; height: 32px;
+            background: var(--bg-cell-hidden);
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 900; font-size: 18px;
+            cursor: pointer; box-shadow: var(--cell-inset);
+            border-radius: var(--border-radius-cell);
+            transition: background 0.1s, transform 0.05s;
+        }
+        
+        @media (max-width: 600px) {
+            .cell { width: 28px; height: 28px; font-size: 16px; }
+        }
+
+        .cell:active:not(.revealed):not(.flagged) { transform: scale(0.95); }
+        .cell.revealed { background: var(--bg-cell-revealed); box-shadow: var(--cell-revealed-shadow); cursor: default; }
+        .cell.mine { background: #ff4444 !important; box-shadow: none; }
+        .cell.mine-hit { background: #ff0000 !important; }
+        
+        /* Number Colors */
+        .cell[data-val="1"] { color: #3b82f6; }
+        .cell[data-val="2"] { color: #10b981; }
+        .cell[data-val="3"] { color: #ef4444; }
+        .cell[data-val="4"] { color: #8b5cf6; }
+        .cell[data-val="5"] { color: #800000; }
+        .cell[data-val="6"] { color: #0ea5e9; }
+        .cell[data-val="7"] { color: #000000; }
+        .cell[data-val="8"] { color: #6b7280; }
+
+        /* SVG Icons */
+        .icon { width: 20px; height: 20px; pointer-events: none; }
+        .icon-flag { fill: #f59e0b; }
+        .icon-mine { fill: #111827; }
+
+        /* MODALS */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7); display: none;
+            align-items: center; justify-content: center; z-index: 1000;
+        }
+        .modal {
+            background: var(--bg-panel); padding: 30px; border-radius: var(--border-radius-panel);
+            text-align: center; box-shadow: var(--shadow-panel); max-width: 400px; width: 90%;
+        }
+        .modal h2 { margin-top: 0; color: var(--text-accent); }
+        .modal p { margin-bottom: 20px; font-size: 1.1rem; }
+        
+        #install-btn { display: none; margin-top: 10px; width: 100%; }
+
+        .scores-table { width: 100%; text-align: left; border-collapse: collapse; margin-bottom: 20px; }
+        .scores-table th, .scores-table td { padding: 8px; border-bottom: 1px solid var(--cell-border); }
+    </style>
+</head>
+<body data-theme="dark" oncontextmenu="return false;">
+
+    <div class="container">
+        <div class="header">
+            <h1>Minesweeper</h1>
+            <div class="controls">
+                <select id="theme-select">
+                    <option value="dark">Dark Theme</option>
+                    <option value="light">Light Theme</option>
+                    <option value="cyberpunk">Cyberpunk</option>
+                </select>
+                <select id="difficulty-select">
+                    <option value="beginner">Beginner (9x9)</option>
+                    <option value="intermediate">Intermediate (16x16)</option>
+                    <option value="expert">Expert (30x16)</option>
+                </select>
+                <button id="btn-restart" class="primary">Restart</button>
+            </div>
+        </div>
+
+        <div class="hud">
+            <div class="hud-item" title="Mines Remaining">
+                <svg viewBox="0 0 24 24"><path d="M14.4,6L14,4H5V21H7V14H12.6L13,16H20V6H14.4Z"/></svg>
+                <span id="mines-count">010</span>
+            </div>
+            <div class="hud-item" title="Score">
+                <span id="score-display">0</span>
+            </div>
+            <div class="hud-item" title="Time">
+                <svg viewBox="0 0 24 24"><path d="M12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22C6.47,22 2,17.5 2,12A10,10 0 0,1 12,2M12.5,7V12.25L17,14.92L16.25,16.15L11,13V7H12.5Z"/></svg>
+                <span id="timer">000</span>
+            </div>
+        </div>
+
+        <div class="board-container">
+            <div id="board" class="board"></div>
+        </div>
+        
+        <button id="install-btn" class="primary">Install App</button>
+    </div>
+
+    <!-- Game Over Modal -->
+    <div id="modal" class="modal-overlay">
+        <div class="modal">
+            <h2 id="modal-title">Game Over</h2>
+            <p id="modal-desc"></p>
+            <div id="high-scores-container" style="display:none;">
+                <h3>Top Scores</h3>
+                <table class="scores-table">
+                    <thead><tr><th>Difficulty</th><th>Score</th><th>Time</th></tr></thead>
+                    <tbody id="scores-body"></tbody>
+                </table>
+            </div>
+            <button id="btn-modal-close" class="primary">Play Again</button>
+        </div>
+    </div>
+
+    <!-- Inline SVG Assets (Created via JS to inject cleanly) -->
+    <script>
+        const SVGS = {
+            flag: `<svg class="icon icon-flag" viewBox="0 0 24 24"><path d="M14.4,6L14,4H5V21H7V14H12.6L13,16H20V6H14.4Z"/></svg>`,
+            mine: `<svg class="icon icon-mine" viewBox="0 0 24 24"><path d="M23,13H19.95C19.74,16.43 17.06,19.2 13.56,19.46V22.5H10.44V19.46C6.94,19.2 4.26,16.43 4.05,13H1V9.88H4.05C4.26,6.45 6.94,3.68 10.44,3.42V0.38H13.56V3.42C17.06,3.68 19.74,6.45 19.95,9.88H23V13M12,5.5A6.5,6.5 0 0,0 5.5,12A6.5,6.5 0 0,0 12,18.5A6.5,6.5 0 0,0 18.5,12A6.5,6.5 0 0,0 12,5.5Z"/></svg>`
+        };
+
+        // --- GAME CONFIGURATION ---
+        const CONFIG = {
+            beginner: { rows: 9, cols: 9, mines: 10, multiplier: 1.0 },
+            intermediate: { rows: 16, cols: 16, mines: 40, multiplier: 2.5 },
+            expert: { rows: 16, cols: 30, mines: 99, multiplier: 5.0 } // 16x30 to fit mobile better horizontally
+        };
+
+        // --- GAME STATE ---
+        let board = [];
+        let state = {
+            difficulty: 'beginner',
+            status: 'idle', // idle, playing, won, lost
+            minesLeft: 0,
+            time: 0,
+            timerInterval: null,
+            firstClickDone: false,
+            revealedCount: 0,
+            touchTimer: null // For mobile long press
+        };
+
+        const DOM = {
+            board: document.getElementById('board'),
+            minesCount: document.getElementById('mines-count'),
+            timer: document.getElementById('timer'),
+            scoreDisplay: document.getElementById('score-display'),
+            difficulty: document.getElementById('difficulty-select'),
+            theme: document.getElementById('theme-select'),
+            btnRestart: document.getElementById('btn-restart'),
+            modal: document.getElementById('modal'),
+            modalTitle: document.getElementById('modal-title'),
+            modalDesc: document.getElementById('modal-desc'),
+            btnModalClose: document.getElementById('btn-modal-close'),
+            scoresContainer: document.getElementById('high-scores-container'),
+            scoresBody: document.getElementById('scores-body')
+        };
+
+        // --- INIT ---
+        function initGame() {
+            clearInterval(state.timerInterval);
+            const conf = CONFIG[state.difficulty];
+            state = {
+                ...state,
+                status: 'idle',
+                minesLeft: conf.mines,
+                time: 0,
+                firstClickDone: false,
+                revealedCount: 0
+            };
+            
+            updateHUD();
+            DOM.scoreDisplay.innerText = "0";
+            buildBoardDOM(conf.rows, conf.cols);
+        }
+
+        function buildBoardDOM(rows, cols) {
+            DOM.board.innerHTML = '';
+            DOM.board.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+            board = [];
+
+            for (let r = 0; r < rows; r++) {
+                board[r] = [];
+                for (let c = 0; c < cols; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.r = r;
+                    cell.dataset.c = c;
+                    
+                    // Mouse events
+                    cell.addEventListener('mousedown', handlePointerDown);
+                    cell.addEventListener('mouseup', handlePointerUp);
+                    cell.addEventListener('mouseleave', clearTouchTimer);
+                    cell.addEventListener('contextmenu', (e) => { e.preventDefault(); handleRightClick(r, c); });
+                    
+                    // Touch events (Mobile support)
+                    cell.addEventListener('touchstart', (e) => { e.preventDefault(); handlePointerDown(e); }, {passive: false});
+                    cell.addEventListener('touchend', (e) => { e.preventDefault(); handlePointerUp(e); }, {passive: false});
+                    cell.addEventListener('touchcancel', clearTouchTimer);
+
+                    DOM.board.appendChild(cell);
+                    board[r][c] = {
+                        dom: cell, r, c, isMine: false, isRevealed: false, isFlagged: false, neighborMines: 0
+                    };
+                }
+            }
+        }
+
+        // --- INTERACTION HANDLING ---
+        let lastClickTime = 0;
+        let activePointerCell = null;
+
+        function handlePointerDown(e) {
+            if (state.status === 'won' || state.status === 'lost') return;
+            const r = parseInt(e.currentTarget.dataset.r);
+            const c = parseInt(e.currentTarget.dataset.c);
+            activePointerCell = {r, c, event: e};
+
+            // Detect double click/tap for chording
+            const currentTime = new Date().getTime();
+            if (currentTime - lastClickTime < 300) {
+                handleChord(r, c);
+                clearTouchTimer();
+                return;
+            }
+            lastClickTime = currentTime;
+
+            // Middle click (Chord)
+            if (e.button === 1) { handleChord(r, c); return; }
+            
+            // Right click handled by contextmenu event. Only left click / touch starts long press logic
+            if (e.button === 0 || e.type === 'touchstart') {
+                state.touchTimer = setTimeout(() => {
+                    handleRightClick(r, c);
+                    activePointerCell = null; // Prevent tap reveal after long press
+                }, 400); // 400ms long press for flag
+            }
+        }
+
+        function handlePointerUp(e) {
+            clearTouchTimer();
+            if (!activePointerCell) return; // Handled by long press already
+            if (state.status === 'won' || state.status === 'lost') return;
+            
+            const r = activePointerCell.r;
+            const c = activePointerCell.c;
+            
+            // Left click or Tap
+            if (e.button === 0 || e.type === 'touchend') {
+                handleLeftClick(r, c);
+            }
+            activePointerCell = null;
+        }
+
+        function clearTouchTimer() {
+            if (state.touchTimer) {
+                clearTimeout(state.touchTimer);
+                state.touchTimer = null;
+            }
+        }
+
+        // --- GAME LOGIC ---
+        function handleLeftClick(r, c) {
+            const cell = board[r][c];
+            if (cell.isFlagged || cell.isRevealed) return;
+
+            if (!state.firstClickDone) {
+                generateMines(r, c);
+                state.firstClickDone = true;
+                state.status = 'playing';
+                state.timerInterval = setInterval(() => {
+                    state.time++;
+                    updateHUD();
+                }, 1000);
+            }
+
+            if (cell.isMine) {
+                gameOver(false, cell);
+                return;
+            }
+
+            revealCell(r, c);
+            checkWin();
+        }
+
+        function handleRightClick(r, c) {
+            if (state.status === 'won' || state.status === 'lost' || !state.firstClickDone) return;
+            const cell = board[r][c];
+            if (cell.isRevealed) return;
+
+            cell.isFlagged = !cell.isFlagged;
+            cell.dom.innerHTML = cell.isFlagged ? SVGS.flag : '';
+            state.minesLeft += cell.isFlagged ? -1 : 1;
+            updateHUD();
+        }
+
+        function handleChord(r, c) {
+            if (!state.firstClickDone || state.status !== 'playing') return;
+            const cell = board[r][c];
+            if (!cell.isRevealed || cell.neighborMines === 0) return;
+
+            let flagCount = 0;
+            const neighbors = getNeighbors(r, c);
+            neighbors.forEach(n => { if (n.isFlagged) flagCount++; });
+
+            if (flagCount === cell.neighborMines) {
+                let hitMine = false;
+                let deathCell = null;
+                neighbors.forEach(n => {
+                    if (!n.isRevealed && !n.isFlagged) {
+                        if (n.isMine) { hitMine = true; deathCell = n; }
+                        else { revealCell(n.r, n.c); }
+                    }
+                });
+                
+                if (hitMine) gameOver(false, deathCell);
+                else checkWin();
+            }
+        }
+
+        function revealCell(r, c) {
+            const cell = board[r][c];
+            if (cell.isRevealed || cell.isFlagged) return;
+
+            cell.isRevealed = true;
+            cell.dom.classList.add('revealed');
+            state.revealedCount++;
+
+            if (cell.neighborMines > 0) {
+                cell.dom.innerText = cell.neighborMines;
+                cell.dom.dataset.val = cell.neighborMines;
+            } else {
+                // Flood Fill BFS
+                const queue = [cell];
+                while (queue.length > 0) {
+                    const current = queue.shift();
+                    const neighbors = getNeighbors(current.r, current.c);
+                    for (let n of neighbors) {
+                        if (!n.isRevealed && !n.isFlagged) {
+                            n.isRevealed = true;
+                            n.dom.classList.add('revealed');
+                            state.revealedCount++;
+                            if (n.neighborMines > 0) {
+                                n.dom.innerText = n.neighborMines;
+                                n.dom.dataset.val = n.neighborMines;
+                            } else {
+                                queue.push(n);
+                            }
+                        }
+                    }
+                }
+            }
+            updateLiveScore();
+        }
+
+        function generateMines(firstR, firstC) {
+            const conf = CONFIG[state.difficulty];
+            let minesPlaced = 0;
+            
+            while (minesPlaced < conf.mines) {
+                const r = Math.floor(Math.random() * conf.rows);
+                const c = Math.floor(Math.random() * conf.cols);
+                
+                // Avoid first click AND its immediate 8 neighbors (First Click Guarantee)
+                const isSafeZone = Math.abs(r - firstR) <= 1 && Math.abs(c - firstC) <= 1;
+                
+                if (!board[r][c].isMine && !isSafeZone) {
+                    board[r][c].isMine = true;
+                    minesPlaced++;
+                }
+            }
+
+            // Calculate numbers
+            for (let r = 0; r < conf.rows; r++) {
+                for (let c = 0; c < conf.cols; c++) {
+                    if (!board[r][c].isMine) {
+                        board[r][c].neighborMines = getNeighbors(r, c).filter(n => n.isMine).length;
+                    }
+                }
+            }
+        }
+
+        function getNeighbors(r, c) {
+            const neighbors = [];
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    if (i === 0 && j === 0) continue;
+                    const nr = r + i, nc = c + j;
+                    if (nr >= 0 && nr < CONFIG[state.difficulty].rows && nc >= 0 && nc < CONFIG[state.difficulty].cols) {
+                        neighbors.push(board[nr][nc]);
+                    }
+                }
+            }
+            return neighbors;
+        }
+
+        function updateHUD() {
+            DOM.minesCount.innerText = state.minesLeft.toString().padStart(3, '0');
+            DOM.timer.innerText = Math.min(state.time, 999).toString().padStart(3, '0');
+        }
+
+        function updateLiveScore() {
+            if(state.status !== 'playing') return;
+            // Simple live score: 10 points per tile revealed
+            DOM.scoreDisplay.innerText = state.revealedCount * 10;
+        }
+
+        function calculateFinalScore() {
+            const conf = CONFIG[state.difficulty];
+            // Score = max(0, 10000 * multiplier - time * 10)
+            const base = 10000 * conf.multiplier;
+            const timePenalty = state.time * 10;
+            return Math.max(0, Math.floor(base - timePenalty));
+        }
+
+        function checkWin() {
+            const conf = CONFIG[state.difficulty];
+            const safeCells = (conf.rows * conf.cols) - conf.mines;
+            
+            if (state.revealedCount === safeCells) {
+                gameOver(true);
+            }
+        }
+
+        function gameOver(win, deathCell = null) {
+            state.status = win ? 'won' : 'lost';
+            clearInterval(state.timerInterval);
+
+            // Reveal all mines
+            board.forEach(row => row.forEach(cell => {
+                if (cell.isMine) {
+                    if (!cell.isFlagged) {
+                        cell.dom.innerHTML = SVGS.mine;
+                        cell.dom.classList.add('mine');
+                    }
+                } else if (cell.isFlagged) {
+                    // False flag indicator
+                    cell.dom.innerHTML = '❌';
+                    cell.dom.style.background = '#ffbbbb';
+                }
+            }));
+
+            if (deathCell) {
+                deathCell.dom.classList.add('mine-hit');
+            }
+
+            let finalScore = 0;
+            if (win) {
+                finalScore = calculateFinalScore();
+                DOM.scoreDisplay.innerText = finalScore;
+                saveScore(finalScore);
+                DOM.modalTitle.innerText = "Mission Accomplished!";
+                DOM.modalDesc.innerText = `Cleared in ${state.time}s. Score: ${finalScore}`;
+                DOM.modalTitle.style.color = "#10b981";
+            } else {
+                DOM.modalTitle.innerText = "Boom! Game Over";
+                DOM.modalDesc.innerText = "You stepped on a mine.";
+                DOM.modalTitle.style.color = "#ef4444";
+            }
+
+            showScoresTable();
+            setTimeout(() => { DOM.modal.style.display = 'flex'; }, 500);
+        }
+
+        // --- SCORES / PERSISTENCE (LocalStorage) ---
+        function saveScore(score) {
+            let scores = JSON.parse(localStorage.getItem('ms-scores') || '[]');
+            scores.push({
+                diff: state.difficulty,
+                score: score,
+                time: state.time,
+                date: new Date().toLocaleDateString()
+            });
+            // Sort by score DESC
+            scores.sort((a, b) => b.score - a.score);
+            localStorage.setItem('ms-scores', JSON.stringify(scores.slice(0, 5))); // Keep top 5
+        }
+
+        function showScoresTable() {
+            let scores = JSON.parse(localStorage.getItem('ms-scores') || '[]');
+            if (scores.length === 0) {
+                DOM.scoresContainer.style.display = 'none';
+                return;
+            }
+            DOM.scoresContainer.style.display = 'block';
+            DOM.scoresBody.innerHTML = '';
+            scores.forEach(s => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${s.diff}</td><td>${s.score}</td><td>${s.time}s</td>`;
+                DOM.scoresBody.appendChild(tr);
+            });
+        }
+
+        // --- BINDINGS ---
+        DOM.btnRestart.addEventListener('click', initGame);
+        DOM.btnModalClose.addEventListener('click', () => {
+            DOM.modal.style.display = 'none';
+            initGame();
+        });
+        
+        DOM.difficulty.addEventListener('change', (e) => {
+            state.difficulty = e.target.value;
+            initGame();
+        });
+
+        DOM.theme.addEventListener('change', (e) => {
+            document.body.setAttribute('data-theme', e.target.value);
+            localStorage.setItem('ms-theme', e.target.value);
+        });
+
+        // Load saved theme
+        const savedTheme = localStorage.getItem('ms-theme') || 'dark';
+        document.body.setAttribute('data-theme', savedTheme);
+        DOM.theme.value = savedTheme;
+
+        // Start
+        initGame();
+
+        // --- PWA CAPABILITIES (Dynamically Injected for Single File constraints) ---
+        (function injectPWA() {
+            // 1. Generate Manifest
+            const svgIconUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#1e1e2e"/><path fill="#89b4fa" d="M100,100 h312 v312 h-312 z"/><circle cx="256" cy="256" r="100" fill="#111827"/></svg>`);
+            
+            const manifestData = {
+                name: "Dynamic Minesweeper",
+                short_name: "Minesweeper",
+                start_url: window.location.href,
+                display: "standalone",
+                background_color: "#1e1e2e",
+                theme_color: "#1e1e2e",
+                icons: [{ src: svgIconUrl, sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }]
+            };
+            
+            const manifestBlob = new Blob([JSON.stringify(manifestData)], { type: 'application/json' });
+            DOM.manifestLink = document.getElementById('manifest-link');
+            DOM.manifestLink.href = URL.createObjectURL(manifestBlob);
+
+            // 2. Generate Service Worker
+            const swCode = `
+                self.addEventListener('install', (e) => self.skipWaiting());
+                self.addEventListener('activate', (e) => self.clients.claim());
+                self.addEventListener('fetch', (e) => {
+                    // Offline passthrough logic (Cache purely what the browser holds)
+                });
+            `;
+            const swBlob = new Blob([swCode], { type: 'application/javascript' });
+            const swUrl = URL.createObjectURL(swBlob);
+
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register(swUrl).catch(err => console.log("SW Register failed (expected in some sandboxed iframes):", err));
+            }
+
+            // 3. Install Prompt Handling
+            let deferredPrompt;
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault();
+                deferredPrompt = e;
+                const installBtn = document.getElementById('install-btn');
+                installBtn.style.display = 'block';
+                installBtn.addEventListener('click', () => {
+                    installBtn.style.display = 'none';
+                    deferredPrompt.prompt();
+                    deferredPrompt.userChoice.then((choiceResult) => {
+                        deferredPrompt = null;
+                    });
+                });
+            });
+        })();
+    </script>
+</body>
+</html>
+
